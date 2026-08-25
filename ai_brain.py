@@ -44,8 +44,10 @@ def decide_recovery_action(failure_reason: str, user_history: str = "Standard us
                 response_format={"type": "json_object"},
                 temperature=0.2
             )
-            return json.loads(response.choices[0].message.content)
+            result = json.loads(response.choices[0].message.content)
+            result["model_used"] = model_name
+            return result
         except Exception as e:
             continue
             
-    return {"action": "ESCALATE_TO_HUMAN", "reasoning": "AI decision fallback.", "sms_message": ""}
+    return {"action": "ESCALATE_TO_HUMAN", "reasoning": "AI decision fallback.", "sms_message": "", "model_used": "fallback"}

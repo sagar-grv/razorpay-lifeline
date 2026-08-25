@@ -19,10 +19,10 @@ df_logs = pd.read_sql("SELECT * FROM recovery_audit_logs ORDER BY created_at DES
 # Check model mode
 groq_key = os.getenv("GROQ_API_KEY", "")
 if not groq_key or groq_key.startswith("gsk_test"):
-    model_status = "MOCK MODE (live Llama 3 pending key)"
+    model_status = "MOCK MODE (live LLM pending key)"
     model_delta = "Simulated Reasoning"
 else:
-    model_status = "llama3-70b-8192 (LIVE)"
+    model_status = "openai/gpt-oss-120b (LIVE)"
     model_delta = "Live Groq Inference"
 
 if df_payments.empty:

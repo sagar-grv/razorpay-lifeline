@@ -68,9 +68,10 @@ async def background_recovery_task(payment_id: str, failure_reason: str, amount:
         print(f"Final status for {payment_id}: {pay.final_status if pay else final_status}")
 
         # 3. Save Audit Log
+        model_used = ai_decision.get("model_used", "openai/gpt-oss-120b (Groq)")
         log = RecoveryAuditLog(
             payment_id=payment_id,
-            ai_model_used="llama3-70b-8192",
+            ai_model_used=model_used,
             ai_reasoning=reasoning,
             action_taken=action,
             execution_status=execution_status
