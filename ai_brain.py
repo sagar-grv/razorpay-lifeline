@@ -33,14 +33,19 @@ def decide_recovery_action(failure_reason: str, user_history: str = "Standard us
     Return ONLY valid JSON with keys: "action", "reasoning", "sms_message" (if applicable).
     """
     
-    try:
-        response = client.chat.completions.create(
-            model="llama3-70b-8192",
-            messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"},
-            temperature=0.2
-        )
-        return json.loads(response.choices[0].message.content)
-    except Exception as e:
-        print(f"AI Error: {e}")
-        return {"action": "ESCALATE_TO_HUMAN", "reasoning": f"AI failed: {str(e)}", "sms_message": ""}
+    # Try active models in order of capability
+    models_to_try = ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.6-27b", "llama-3.3-70b-versatile"]
+    
+    for model_name in models_to_try:
+        try:
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
+                temperature=0.2
+            )
+            return json.loads(response.choices[0].message.content)
+        except Exception as e:
+            continue
+            
+    return {"action": "ESCALATE_TO_HUMAN", "reasoning": "AI decision fallback.", "sms_message": ""}
