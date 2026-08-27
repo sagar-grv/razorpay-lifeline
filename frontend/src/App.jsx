@@ -7,7 +7,8 @@ import PaymentTable from './components/PaymentTable';
 import LiveTerminal from './components/LiveTerminal';
 import AICopilotModal from './components/AICopilotModal';
 import PaymentDetailModal from './components/PaymentDetailModal';
-import { Sparkles, Terminal, ArrowUpRight, Activity } from 'lucide-react';
+import CommandPalette from './components/CommandPalette';
+import { Terminal, Activity, Sparkles, Command } from 'lucide-react';
 
 export default function App() {
   const [stats, setStats] = useState(null);
@@ -15,6 +16,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
   const [isCopilotOpen, setIsCopilotOpen] = useState(false);
+  const [isCmdkOpen, setIsCmdkOpen] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState(null);
   const [webhookUrl, setWebhookUrl] = useState('http://localhost:8000');
 
@@ -37,12 +39,48 @@ export default function App() {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 4000); // Poll every 4 seconds
+    const interval = setInterval(fetchData, 4000);
     return () => clearInterval(interval);
   }, []);
 
+  const handleSimulatePayment = async (reason, amount, label) => {
+    try {
+      await fetch('/api/simulate-payment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          failure_reason: reason,
+          amount_in_rupees: amount,
+          phone: '+919876543210'
+        })
+      });
+      fetchData();
+    } catch (e) {}
+  };
+
+  const handleSimulateReply = async (content, label) => {
+    try {
+      await fetch('/api/simulate-reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone: '+919876543210',
+          content: content
+        })
+      });
+      fetchData();
+    } catch (e) {}
+  };
+
+  const handleRunBatch = async () => {
+    try {
+      await fetch('/api/batch-test', { method: 'POST' });
+      setTimeout(fetchData, 2000);
+    } catch (e) {}
+  };
+
   return (
-    <div className="min-h-screen bg-[#090D16] text-slate-100 flex flex-col selection:bg-blue-600 selection:text-white">
+    <div className="min-h-screen bg-[#070A11] text-slate-100 flex flex-col selection:bg-sky-500 selection:text-white">
       
       {/* Navigation Header */}
       <Header
@@ -51,6 +89,7 @@ export default function App() {
         isTerminalOpen={isTerminalOpen}
         setIsTerminalOpen={setIsTerminalOpen}
         onOpenCopilot={() => setIsCopilotOpen(true)}
+        onOpenCmdk={setIsCmdkOpen}
         webhookUrl={webhookUrl}
       />
 
@@ -85,16 +124,27 @@ export default function App() {
             <div className="flex justify-end pb-3">
               <button
                 onClick={() => setIsTerminalOpen(true)}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-white text-xs font-mono font-medium border border-slate-700 shadow-2xl backdrop-blur-lg transition-all active:scale-95 group"
+                className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-white text-xs font-mono font-medium border border-slate-700/80 shadow-2xl backdrop-blur-xl transition-all fintech-button"
               >
-                <Terminal className="w-3.5 h-3.5 text-blue-400 group-hover:text-cyan-300" />
-                <span>Open Live Engine Logs</span>
+                <Terminal className="w-3.5 h-3.5 text-sky-400" />
+                <span>Engine Telemetry</span>
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
               </button>
             </div>
           )}
         </div>
       </div>
+
+      {/* Command Palette (Cmd+K) */}
+      <CommandPalette
+        isOpen={isCmdkOpen}
+        onClose={setIsCmdkOpen}
+        onOpenCopilot={() => setIsCopilotOpen(true)}
+        onOpenTerminal={() => setIsTerminalOpen(true)}
+        onSimulatePayment={handleSimulatePayment}
+        onSimulateReply={handleSimulateReply}
+        onRunBatch={handleRunBatch}
+      />
 
       {/* AI Copilot Drawer Modal */}
       <AICopilotModal
@@ -103,7 +153,7 @@ export default function App() {
         stats={stats}
       />
 
-      {/* Payment Detail Modal */}
+      {/* Payment Forensic Detail Modal */}
       <PaymentDetailModal
         payment={selectedPayment}
         onClose={() => setSelectedPayment(null)}

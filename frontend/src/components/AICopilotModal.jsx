@@ -51,17 +51,17 @@ export default function AICopilotModal({ isOpen, onClose, stats }) {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md">
-      <div className="glass-panel w-full max-w-2xl rounded-2xl shadow-2xl border border-purple-500/30 flex flex-col h-[600px] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md">
+      <div className="fintech-card w-full max-w-2xl rounded-2xl shadow-2xl border border-purple-500/30 flex flex-col h-[600px] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-slate-800 bg-slate-900/80">
+        <div className="flex items-center justify-between p-4 border-b border-slate-800 bg-slate-900/90">
           <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-gradient-to-tr from-purple-600 to-indigo-600 text-white shadow-md shadow-purple-500/30">
-              <Sparkles className="w-5 h-5" />
+            <div className="p-2 rounded-xl bg-gradient-to-tr from-purple-600 to-indigo-600 text-white shadow-md shadow-purple-500/20">
+              <Sparkles className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
+              <h3 className="text-sm font-bold text-white flex items-center gap-1.5 font-sans">
                 Lifeline AI Copilot
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 font-mono border border-purple-500/30">
                   Groq Intelligence
@@ -90,16 +90,16 @@ export default function AICopilotModal({ isOpen, onClose, stats }) {
               <div
                 className={`p-1.5 rounded-lg flex-shrink-0 ${
                   m.role === 'user'
-                    ? 'bg-blue-600 text-white'
+                    ? 'bg-sky-600 text-white'
                     : 'bg-purple-600/20 text-purple-300 border border-purple-500/30'
                 }`}
               >
-                {m.role === 'user' ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
+                {m.role === 'user' ? <User className="w-3.5 h-3.5" /> : <Bot className="w-3.5 h-3.5 text-purple-300" />}
               </div>
               <div
-                className={`p-3.5 rounded-2xl max-w-[82%] leading-relaxed ${
+                className={`p-3.5 rounded-2xl max-w-[84%] leading-relaxed ${
                   m.role === 'user'
-                    ? 'bg-blue-600 text-white font-medium rounded-tr-none'
+                    ? 'bg-sky-600 text-white font-medium rounded-tr-none'
                     : 'bg-slate-900/90 text-slate-200 border border-slate-800 rounded-tl-none'
                 }`}
               >
@@ -110,11 +110,11 @@ export default function AICopilotModal({ isOpen, onClose, stats }) {
           {loading && (
             <div className="flex items-center gap-3">
               <div className="p-1.5 rounded-lg bg-purple-600/20 text-purple-300 border border-purple-500/30">
-                <Bot className="w-4 h-4" />
+                <Bot className="w-3.5 h-3.5" />
               </div>
               <div className="p-3.5 rounded-2xl bg-slate-900/90 text-slate-400 border border-slate-800 flex items-center gap-2">
                 <Loader2 className="w-3.5 h-3.5 animate-spin text-purple-400" />
-                <span>Analyzing payment telemetry via Groq...</span>
+                <span>Consulting Groq LLM inference...</span>
               </div>
             </div>
           )}
@@ -126,7 +126,7 @@ export default function AICopilotModal({ isOpen, onClose, stats }) {
             <button
               key={idx}
               onClick={() => handleSend(pq)}
-              className="flex-shrink-0 px-2.5 py-1 rounded-lg bg-slate-800/60 hover:bg-purple-600/20 hover:text-purple-300 hover:border-purple-500/40 text-[11px] text-slate-400 border border-slate-700/60 transition-all flex items-center gap-1"
+              className="flex-shrink-0 px-2.5 py-1 rounded-lg bg-slate-800/60 hover:bg-purple-600/20 hover:text-purple-300 hover:border-purple-500/40 text-[11px] text-slate-400 border border-slate-700/60 transition-all flex items-center gap-1 font-sans"
             >
               <span>{pq}</span>
               <ArrowRight className="w-2.5 h-2.5" />
@@ -144,17 +144,17 @@ export default function AICopilotModal({ isOpen, onClose, stats }) {
         >
           <input
             type="text"
-            placeholder="Ask anything about payment recovery, compliance rules, or AI decisions..."
+            placeholder="Ask about payment recovery, compliance stopping rules, or AI decisions..."
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            className="flex-1 px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 transition-colors"
+            className="flex-1 px-4 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 transition-colors"
           />
           <button
             type="submit"
             disabled={!input.trim() || loading}
-            className="p-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white disabled:opacity-40 transition-all"
+            className="p-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white disabled:opacity-40 transition-all fintech-button"
           >
-            <Send className="w-4 h-4" />
+            <Send className="w-3.5 h-3.5" />
           </button>
         </form>
 

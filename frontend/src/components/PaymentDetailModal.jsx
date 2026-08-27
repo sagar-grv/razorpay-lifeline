@@ -1,20 +1,32 @@
-import React from 'react';
-import { X, ExternalLink, Sparkles, MessageSquare, ShieldAlert, CheckCircle2, Clock, Smartphone, CreditCard } from 'lucide-react';
+import React, { useState } from 'react';
+import { X, Sparkles, MessageSquare, ExternalLink, Check, Copy } from 'lucide-react';
 
 export default function PaymentDetailModal({ payment, onClose }) {
+  const [copied, setCopied] = useState(false);
   if (!payment) return null;
 
+  const handleCopyId = () => {
+    navigator.clipboard.writeText(payment.payment_id);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md">
-      <div className="glass-panel w-full max-w-lg rounded-2xl shadow-2xl border border-blue-500/30 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md">
+      <div className="fintech-card w-full max-w-lg shadow-2xl border border-slate-700/80 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
         
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-slate-800 bg-slate-900/80">
+        <div className="flex items-center justify-between p-4 border-b border-slate-800 bg-slate-900/90">
           <div>
-            <span className="text-[10px] uppercase font-bold tracking-wider text-blue-400 font-mono">
-              Transaction Forensic Detail
+            <span className="text-[10px] uppercase font-bold tracking-wider text-sky-400 font-mono">
+              Transaction Forensic Audit
             </span>
-            <h3 className="text-base font-bold text-white font-mono">{payment.payment_id}</h3>
+            <div className="flex items-center gap-2">
+              <h3 className="text-base font-bold text-white font-mono">{payment.payment_id}</h3>
+              <button onClick={handleCopyId} className="text-slate-400 hover:text-white" title="Copy ID">
+                {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+              </button>
+            </div>
           </div>
           <button
             onClick={onClose}
@@ -28,14 +40,14 @@ export default function PaymentDetailModal({ payment, onClose }) {
         <div className="p-6 space-y-4 text-xs">
           
           {/* Key attributes grid */}
-          <div className="grid grid-cols-2 gap-3 p-3.5 rounded-xl bg-slate-900/60 border border-slate-800">
+          <div className="grid grid-cols-2 gap-3 p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 font-mono-numbers">
             <div>
-              <span className="text-slate-400 block text-[10px] uppercase">Failed Amount</span>
+              <span className="text-slate-400 block text-[10px] uppercase font-mono">Failed Amount</span>
               <span className="text-sm font-bold text-white font-mono">₹{payment.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
             </div>
             <div>
-              <span className="text-slate-400 block text-[10px] uppercase">Final Status</span>
-              <span className={`inline-block font-semibold px-2 py-0.5 rounded text-[11px] mt-0.5 ${
+              <span className="text-slate-400 block text-[10px] uppercase font-mono">Final Status</span>
+              <span className={`inline-block font-semibold px-2 py-0.5 rounded text-[11px] mt-0.5 font-mono ${
                 payment.final_status === 'RECOVERED' ? 'bg-emerald-500/20 text-emerald-300' :
                 payment.final_status === 'ESCALATED' ? 'bg-amber-500/20 text-amber-300' : 'bg-rose-500/20 text-rose-300'
               }`}>
@@ -43,11 +55,11 @@ export default function PaymentDetailModal({ payment, onClose }) {
               </span>
             </div>
             <div>
-              <span className="text-slate-400 block text-[10px] uppercase">Failure Reason</span>
-              <span className="font-mono text-slate-200">{payment.failure_reason}</span>
+              <span className="text-slate-400 block text-[10px] uppercase font-mono">Failure Code</span>
+              <span className="font-mono text-slate-200 text-[11px]">{payment.failure_reason}</span>
             </div>
             <div>
-              <span className="text-slate-400 block text-[10px] uppercase">Customer Contact</span>
+              <span className="text-slate-400 block text-[10px] uppercase font-mono">Customer Phone</span>
               <span className="font-mono text-slate-200">{payment.user_phone || "N/A"}</span>
             </div>
           </div>
@@ -63,14 +75,14 @@ export default function PaymentDetailModal({ payment, onClose }) {
                 {payment.action_taken || "AUTO_TRIAGE"}
               </span>
             </div>
-            <p className="text-slate-300 leading-relaxed">
+            <p className="text-slate-300 leading-relaxed font-sans">
               {payment.ai_reasoning || "Autonomous error triage and recovery pipeline executed."}
             </p>
           </div>
 
           {/* Customer Reply & Intent */}
           {payment.user_reply && (
-            <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 space-y-1">
+            <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 space-y-1 font-sans">
               <div className="flex items-center justify-between text-slate-400">
                 <span className="flex items-center gap-1 text-[10px] uppercase font-semibold">
                   <MessageSquare className="w-3.5 h-3.5 text-amber-400" />
@@ -87,11 +99,11 @@ export default function PaymentDetailModal({ payment, onClose }) {
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-slate-800 bg-slate-900/80 flex items-center justify-between">
+        <div className="p-4 border-t border-slate-800 bg-slate-900/90 flex items-center justify-between">
           <span className="text-[11px] text-slate-500 font-mono">Logged: {payment.created_at || "Recent"}</span>
           <button
             onClick={onClose}
-            className="px-4 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition-all"
+            className="px-4 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition-all fintech-button"
           >
             Close
           </button>
