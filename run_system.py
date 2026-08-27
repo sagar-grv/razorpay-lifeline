@@ -22,19 +22,29 @@ def print_banner():
     """
     print(banner)
 
-def check_postgres_docker():
-    print("[1/4] Checking PostgreSQL Docker Container (lifeline_db)...")
+def check_docker_services():
+    print("[1/4] Checking PostgreSQL & Evolution API Docker Services...")
     try:
-        res = subprocess.run(["docker", "ps", "-a", "--filter", "name=lifeline_db", "--format", "{{.Status}}"], capture_output=True, text=True)
-        if "Up" in res.stdout:
-            print("  -> PostgreSQL Container is ALIVE and RUNNING on port 5432.")
+        # 1. PostgreSQL check
+        res_pg = subprocess.run(["docker", "ps", "-a", "--filter", "name=lifeline_db", "--format", "{{.Status}}"], capture_output=True, text=True)
+        if "Up" in res_pg.stdout:
+            print("  -> PostgreSQL Container is ALIVE on port 5432.")
         else:
             print("  -> Starting PostgreSQL Container (lifeline_db)...")
             subprocess.run(["docker", "start", "lifeline_db"], capture_output=True)
             time.sleep(2)
-            print("  -> PostgreSQL Container started.")
+            
+        # 2. Evolution API check
+        if os.getenv("WHATSAPP_ENABLED", "false").lower() == "true":
+            res_evo = subprocess.run(["docker", "ps", "-a", "--filter", "name=evolution-api", "--format", "{{.Status}}"], capture_output=True, text=True)
+            if "Up" in res_evo.stdout:
+                print("  -> Evolution API Container is ALIVE on port 8080.")
+            elif res_evo.stdout.strip():
+                print("  -> Starting Evolution API Container (evolution-api)...")
+                subprocess.run(["docker", "start", "evolution-api"], capture_output=True)
+                time.sleep(2)
     except Exception as e:
-        print(f"  -> Docker check warning: {e}. Ensure PostgreSQL is accessible on localhost:5432.")
+        print(f"  -> Docker check notice: {e}")
 
 def start_backend():
     print("[2/4] Starting FastAPI Uvicorn Server on http://localhost:8000...")
@@ -111,7 +121,7 @@ def start_frontend():
 
 def main():
     print_banner()
-    check_postgres_docker()
+    check_docker_services()
     
     backend_proc = start_backend()
     ngrok_proc = start_ngrok()

@@ -7,7 +7,7 @@ import hashlib, hmac, json, os, random, asyncio, time, datetime, sys
 from dotenv import load_dotenv
 from database import SessionLocal, FailedPayment, RecoveryAuditLog
 from ai_brain import decide_recovery_action
-from channels import send_sms_httpsms
+from channels import dispatch_recovery_message, send_sms_httpsms
 from razorpay_actions import create_razorpay_payment_link
 import urllib.request
 
@@ -79,10 +79,10 @@ async def background_recovery_task(payment_id: str, failure_reason: str, amount:
                 
             log_event(f"Generated Live Razorpay Link: {payment_link}")
             
-            # 3. Send via httpsms
-            success = await send_sms_httpsms(user_phone, sms_msg) 
-            execution_status = "SMS_SENT" if success else "SMS_FAILED"
-            log_event(f"SMS Dispatch to {user_phone}: {execution_status}")
+            # 3. Multi-Channel Dispatch (WhatsApp -> SMS -> Mock)
+            target_phone = os.getenv("WHATSAPP_TO_NUMBER", user_phone)
+            execution_status = await dispatch_recovery_message(target_phone, sms_msg)
+            log_event(f"Multi-Channel Dispatch to {target_phone}: {execution_status}", level="SUCCESS" if "SENT" in execution_status else "INFO")
         elif action == "SCHEDULE_AUTO_RETRY":
             execution_status = "RETRY_SCHEDULED"
             log_event(f"Silent auto-retry scheduled in 10 mins for {payment_id}")
@@ -91,7 +91,7 @@ async def background_recovery_task(payment_id: str, failure_reason: str, amount:
             log_event(f"Escalated {payment_id} to human customer support")
             
         # 4. CLOSED LOOP: did user pay after intervention?
-        SUCCESS_PROB = {"SMS_SENT": 0.35, "RETRY_SCHEDULED": 0.80, "ESCALATED": 0.15}
+        SUCCESS_PROB = {"WHATSAPP_SENT": 0.65, "SMS_SENT": 0.35, "RETRY_SCHEDULED": 0.80, "ESCALATED": 0.15}
         await asyncio.sleep(1)
         recovered = random.random() < SUCCESS_PROB.get(execution_status, 0.10)
         final_status = "RECOVERED" if recovered else "LOST"
