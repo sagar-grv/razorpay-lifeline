@@ -13,6 +13,11 @@ import urllib.request
 
 load_dotenv()
 
+def safe_log(text):
+    if isinstance(text, str):
+        return text.encode('ascii', 'replace').decode('ascii')
+    return text
+
 app = FastAPI(title="Razorpay Lifeline API", version="2.0.0")
 
 # Enable CORS for React frontend (Vite port 5173 and any origin)
@@ -30,11 +35,12 @@ LOG_LISTENERS = []
 
 def log_event(message: str, level: str = "INFO"):
     timestamp = datetime.datetime.now().strftime("%H:%M:%S")
-    entry = {"timestamp": timestamp, "level": level, "message": message}
+    safe_msg = safe_log(message)
+    entry = {"timestamp": timestamp, "level": level, "message": safe_msg}
     LOG_BUFFER.append(entry)
     if len(LOG_BUFFER) > 300:
         LOG_BUFFER.pop(0)
-    print(f"[{timestamp}] [{level}] {message}")
+    print(f"[{timestamp}] [{level}] {safe_msg}")
     for queue in LOG_LISTENERS:
         try:
             queue.put_nowait(entry)
@@ -48,11 +54,16 @@ def get_db():
     finally:
         db.close()
 
+async def send_thank_you_message(to_number: str, content: str, plink_id: str):
+    from channels import dispatch_recovery_message
+    channel_used = await dispatch_recovery_message(to_number, content)
+    log_event(f"[APPRECIATION] Thank You for {plink_id} sent via {safe_log(channel_used)}", level="SUCCESS")
+
 async def background_recovery_task(payment_id: str, failure_reason: str, amount: int, user_id: str, user_phone: str = "+919876543210"):
     """Runs asynchronously after the webhook returns 200 OK."""
     db = SessionLocal()
     try:
-        log_event(f"Triggering AI Recovery pipeline for {payment_id} (Reason: {failure_reason}, Amount: Rs {amount/100:.2f})")
+        log_event(f"Triggering AI Recovery pipeline for {safe_log(payment_id)} (Reason: {safe_log(failure_reason)}, Amount: Rs {amount/100:.2f})")
         
         # 1. AI Brain decides action
         ai_decision = decide_recovery_action(failure_reason)
@@ -61,8 +72,8 @@ async def background_recovery_task(payment_id: str, failure_reason: str, amount:
         sms_msg = ai_decision.get("sms_message", "")
         model_used = ai_decision.get("model_used", "openai/gpt-oss-120b (Groq)")
         
-        log_event(f"AI Decision for {payment_id}: [{action}] via {model_used}")
-        log_event(f"AI Reasoning: {reasoning}")
+        log_event(f"AI Decision for {safe_log(payment_id)}: [{safe_log(action)}] via {safe_log(model_used)}")
+        log_event(f"AI Reasoning: {safe_log(reasoning)}")
         
         execution_status = "PENDING"
         
@@ -77,18 +88,18 @@ async def background_recovery_task(payment_id: str, failure_reason: str, amount:
             else:
                 sms_msg += f" Pay here: {payment_link}"
                 
-            log_event(f"Generated Live Razorpay Link: {payment_link}")
+            log_event(f"Generated Live Razorpay Link: {safe_log(payment_link)}")
             
             # 3. Multi-Channel Dispatch (WhatsApp -> SMS -> Mock)
             target_phone = os.getenv("WHATSAPP_TO_NUMBER", user_phone)
             execution_status = await dispatch_recovery_message(target_phone, sms_msg)
-            log_event(f"Multi-Channel Dispatch to {target_phone}: {execution_status}", level="SUCCESS" if "SENT" in execution_status else "INFO")
+            log_event(f"Multi-Channel Dispatch to {safe_log(target_phone)}: {safe_log(execution_status)}", level="SUCCESS" if "SENT" in execution_status else "INFO")
         elif action == "SCHEDULE_AUTO_RETRY":
             execution_status = "RETRY_SCHEDULED"
-            log_event(f"Silent auto-retry scheduled in 10 mins for {payment_id}")
+            log_event(f"Silent auto-retry scheduled in 10 mins for {safe_log(payment_id)}")
         else:
             execution_status = "ESCALATED"
-            log_event(f"Escalated {payment_id} to human customer support")
+            log_event(f"Escalated {safe_log(payment_id)} to human customer support")
             
         # 4. CLOSED LOOP: did user pay after intervention?
         SUCCESS_PROB = {"WHATSAPP_SENT": 0.65, "SMS_SENT": 0.35, "RETRY_SCHEDULED": 0.80, "ESCALATED": 0.15}
@@ -101,7 +112,7 @@ async def background_recovery_task(payment_id: str, failure_reason: str, amount:
             if pay.final_status != "ESCALATED":
                 pay.final_status = final_status
             db.commit()
-            log_event(f"Closed-Loop outcome for {payment_id}: {pay.final_status}", level="SUCCESS" if pay.final_status == "RECOVERED" else "WARN")
+            log_event(f"Closed-Loop outcome for {safe_log(payment_id)}: {pay.final_status}", level="SUCCESS" if pay.final_status == "RECOVERED" else "WARN")
 
         # 3. Save Audit Log
         log = RecoveryAuditLog(
@@ -113,10 +124,10 @@ async def background_recovery_task(payment_id: str, failure_reason: str, amount:
         )
         db.add(log)
         db.commit()
-        log_event(f"Audit log committed to PostgreSQL for {payment_id}")
+        log_event(f"Audit log committed to PostgreSQL for {safe_log(payment_id)}")
         
     except Exception as e:
-        log_event(f"Error in background task: {e}", level="ERROR")
+        log_event(f"Error in background task: {safe_log(str(e))}", level="ERROR")
     finally:
         db.close()
 
@@ -149,16 +160,20 @@ async def razorpay_webhook(
     try:
         data = json.loads(body)
     except Exception as e:
-        log_event(f"Razorpay Webhook received non-JSON payload: {e}", level="WARN")
+        log_event(f"Razorpay Webhook received non-JSON payload: {safe_log(str(e))}", level="WARN")
         return {"status": "ok", "message": "Payload acknowledged"}
 
     event_type = data.get('event', 'payment.failed')
     
-    # Handle payment link paid events
+    # Handle payment link paid events (with Thank You message)
     if event_type == 'payment_link.paid':
         plink_entity = data.get('payload', {}).get('payment_link', {}).get('entity', {})
-        link_id = plink_entity.get('id')
-        log_event(f"Razorpay Payment Link Paid: {link_id}", level="SUCCESS")
+        plink_id = plink_entity.get('id', 'plink_unknown')
+        amount = plink_entity.get('amount', 0)
+        contact = plink_entity.get('customer', {}).get('contact') or os.getenv("WHATSAPP_TO_NUMBER", "918788021157")
+        thank_you_msg = f"Thank you for your payment of Rs {amount/100:.2f}! Your transaction {plink_id} was successful. We appreciate your promptness."
+        log_event(f"Razorpay Payment Link Paid: {plink_id}", level="SUCCESS")
+        background_tasks.add_task(send_thank_you_message, contact, thank_you_msg, plink_id)
         return {"status": "payment_link_paid_acknowledged"}
 
     # Extract payment entity safely

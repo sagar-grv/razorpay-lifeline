@@ -4,6 +4,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+def safe_log_channel(text):
+    if isinstance(text, str):
+        return text.encode('ascii', 'replace').decode('ascii')
+    return text
+
 async def send_whatsapp_evolution(to_number: str, content: str) -> bool:
     """Sends real WhatsApp message via Evolution API."""
     if os.getenv("WHATSAPP_ENABLED", "false").lower() != "true":
@@ -17,7 +22,7 @@ async def send_whatsapp_evolution(to_number: str, content: str) -> bool:
     clean_number = "".join(filter(str.isdigit, to_number))
     
     try:
-        async with httpx.AsyncClient(timeout=12) as client:
+        async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.post(
                 f"{api_url}/message/sendText/{instance}",
                 headers={"apikey": api_key, "Content-Type": "application/json"},
@@ -42,10 +47,10 @@ async def send_whatsapp_evolution(to_number: str, content: str) -> bool:
                 if fallback_resp.status_code in (200, 201):
                     print(f"[WHATSAPP SENT] To: {clean_number} | Status: 200 OK")
                     return True
-                print(f"[WHATSAPP FAILED] Response ({resp.status_code}): {resp.text}")
+                print(f"[WHATSAPP FAILED] Response ({resp.status_code}): {safe_log_channel(resp.text)}")
                 return False
     except Exception as e:
-        print(f"[WHATSAPP ERROR] {e}")
+        print(f"[WHATSAPP ERROR] {safe_log_channel(str(e))}")
         return False
 
 async def send_sms_httpsms(to_number: str, content: str) -> bool:
@@ -79,5 +84,5 @@ async def dispatch_recovery_message(to_number: str, content: str) -> str:
         return "SMS_SENT"
         
     # 3. Fallback Mock Log
-    print(f"[MOCK DISPATCH] To: {to_number} | Content: {content}")
+    print(f"[MOCK DISPATCH] To: {to_number} | Content: {safe_log_channel(content)}")
     return "SMS_SENT"
