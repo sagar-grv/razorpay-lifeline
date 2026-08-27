@@ -1,12 +1,13 @@
 # 🚑 Project Lifeline: Autonomous AI Payment Recovery Engine
 
 [![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi)](https://fastapi.tiangolo.com/)
+[![React 19](https://img.shields.io/badge/React%2019-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)](https://react.dev/)
+[![TailwindCSS](https://img.shields.io/badge/TailwindCSS-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-316192?style=for-the-badge&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 [![Razorpay](https://img.shields.io/badge/Razorpay-02042B?style=for-the-badge&logo=razorpay&logoColor=3395FF)](https://razorpay.com/)
-[![Groq Llama 3](https://img.shields.io/badge/Groq%20Llama%203-F05A28?style=for-the-badge&logo=meta&logoColor=white)](https://groq.com/)
-[![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white)](https://streamlit.io/)
+[![Groq LLM](https://img.shields.io/badge/Groq%20LLM-F05A28?style=for-the-badge&logo=meta&logoColor=white)](https://groq.com/)
 
-> **Autonomous, compliant, closed-loop payment recovery engine built on Razorpay APIs. Recovers failed transactions, generates live payment links, enforces strict opt-out compliance, and provides real-time auditability.**
+> **Autonomous, compliant, closed-loop payment recovery engine built on Razorpay APIs with a state-of-the-art Animated React Dashboard, In-Browser Live Telemetry Stream, Interactive Testing Sandbox, and AI Recovery Copilot.**
 
 ---
 
@@ -28,7 +29,7 @@ graph TD
     A[Razorpay Webhook:<br>Payment Failed] -->|HMAC-SHA256 Signature Check| B(FastAPI Webhook Receiver)
     B -->|Persist Event| C[(PostgreSQL Audit Ledger)]
     B -->|Async Background Task| D[Recovery Orchestrator]
-    D --> E{AI Brain: Llama 3 / Groq}
+    D --> E{AI Brain: Groq / Llama 3 / GPT-OSS}
     E -->|Transient Error: bank_server_down| F[Schedule Silent Auto-Retry]
     E -->|User Action Required: card_expired / upi_blocked| G[Generate Real Razorpay Payment Link]
     G --> H[httpSMS Gateway]
@@ -36,45 +37,48 @@ graph TD
     I -->|Replies STOP / Opt-Out| J[Inbound SMS Webhook]
     J -->|Deterministic Compliance Filter| K[Halt Automated Recovery & Escalate to Human]
     I -->|Clicks Link & Completes Payment| L[Razorpay Checkout Confirmation]
-    C -.->|Real-Time Telemetry| M[Streamlit Analytics Dashboard]
+    C -.->|Real-Time SSE & REST APIs| M[React Animated Dashboard & AI Copilot]
 
     style A fill:#005571,stroke:#fff,stroke-width:2px,color:#fff
     style B fill:#1E88E5,stroke:#fff,stroke-width:2px,color:#fff
     style E fill:#673AB7,stroke:#fff,stroke-width:2px,color:#fff
     style G fill:#00897B,stroke:#fff,stroke-width:2px,color:#fff
     style K fill:#D32F2F,stroke:#fff,stroke-width:2px,color:#fff
-    style M fill:#E65100,stroke:#fff,stroke-width:2px,color:#fff
+    style M fill:#7C3AED,stroke:#fff,stroke-width:2px,color:#fff
 ```
 
 ---
 
 ## ✨ Core Features
 
-### 1. 🔐 Cryptographic Webhook Security
+### 1. ⚛️ Modern Animated React Dashboard (TailwindCSS + Lucide)
+- Dark glassmorphic interface with micro-interactions, responsive metric cards, and failure category breakdown bars.
+- High-density searchable/filterable PostgreSQL audit ledger with real-time conversion indicators.
+- **Embedded AI Recovery Copilot**: Interactive in-dashboard AI assistant powered by Groq answering merchant questions on ROI, failure patterns, and compliance rules.
+- **In-Browser Real-Time Terminal**: SSE-powered live stream of Uvicorn server logs, HMAC verifications, AI prompts, and SMS dispatch status.
+
+### 2. 🔐 Cryptographic Webhook Security
 - Validates all incoming payloads against Razorpay's HMAC-SHA256 signatures (`X-Razorpay-Signature`).
 - Immediate `200 OK` return ensures zero gateway timeouts; offloads processing to non-blocking background workers (`FastAPI.BackgroundTasks`).
 
-### 2. 🧠 Autonomous AI Brain (Llama 3 / Groq + Smart Mock Fallback)
+### 3. 🧠 Autonomous AI Brain (Groq Inference Engine)
 - **`bank_server_down`**: Identified as transient; schedules silent auto-retry in 10 minutes without disturbing the user.
 - **`card_expired`**: Identifies that user must update card details; generates an active Razorpay payment link and sends a personalized SMS.
 - **`upi_pin_blocked`**: Recognizes PIN lockout; advises PIN reset or switching UPI applications with a recovery checkout link.
 - **`insufficient_funds`**: Detects balance deficit; schedules polite post-salary nudges with instant retry checkout links.
 
-### 3. 💳 Real Razorpay Test-Mode Integration
+### 4. 💳 Real Razorpay Test-Mode Integration
 - Integrates directly with the `razorpay` Python SDK to create real payment links (`https://rzp.io/rzp/...`).
 - Native notifications are suppressed so Project Lifeline's AI orchestrator maintains end-to-end control over messaging tone and timing.
 
-### 4. 🛡️ Deterministic Compliance & Stopping Rules
+### 5. 🛡️ Deterministic Compliance & Stopping Rules
 - Dedicated inbound webhook (`/webhook/httpsms`) captures customer replies.
 - **Zero-hallucination deterministic keyword matching** (`STOP`, `unsubscribe`, `cancel`, `block`, `fraud`).
 - Instantly halts all future outreach, updates database status to `ESCALATED`, and routes the account to human support.
 - Detects `PROMISE_TO_PAY` responses to pause nudges until promised dates.
 
-### 5. 📊 Real-Time Analytics Dashboard
-- Built with **Streamlit**; connects directly to PostgreSQL.
-- **Honest Closed-Loop Metric**: Recovery rate calculated exclusively from confirmed conversions (`final_status == 'RECOVERED'`).
-- **Benchmark Lift vs Industry Baseline**: Proves net lift over standard 22% blind retry baselines (delivering **+90%+ measurable lift**).
-- **Comprehensive Audit Trail Table**: Inspect every transaction, amount, failure reason, AI reasoning, payment link URL, customer reply, and compliance state.
+### 6. 🎮 Interactive Testing Sandbox
+- 1-click test simulation buttons built right into the UI to test bank outages, card expiries, UPI blocks, and customer "STOP" replies in 1 second.
 
 ---
 
@@ -82,110 +86,77 @@ graph TD
 
 ```text
 razorpay-lifeline/
-├── main.py               # FastAPI entry point, HMAC validation, Background tasks & Webhooks
-├── ai_brain.py           # LLM decision engine (Llama 3 70B via Groq + Mock fallback)
+├── main.py               # FastAPI entry point, REST APIs, SSE Log Streaming & Webhooks
+├── run_system.py         # Unified supervisor launching Backend, Ngrok & React Dashboard
+├── start.bat             # 1-click Windows runner batch script
+├── ai_brain.py           # LLM decision engine (Groq / GPT-OSS / Llama 3)
 ├── razorpay_actions.py   # Razorpay API client for live payment link creation
 ├── channels.py           # SMS gateway dispatch module (httpSMS)
 ├── database.py           # SQLAlchemy PostgreSQL models & connection pool
-├── dashboard.py          # Streamlit analytics & audit trail visual interface
 ├── batch_tester.py       # High-throughput batch test simulator (50 payments)
 ├── reset_db.py           # Database migration & schema reset utility
-├── requirements.txt      # Project dependencies
-├── .env.example          # Template for environment variables
-└── README.md             # Project documentation & architecture
+├── frontend/             # Modern React 19 + TailwindCSS + Vite Dashboard
+│   ├── src/
+│   │   ├── components/   # MetricCards, RecoveryChart, PaymentTable, LiveTerminal, AICopilotModal
+│   │   ├── App.jsx       # Dashboard state orchestrator
+│   │   └── index.css     # Glassmorphism & custom utility styles
+│   └── package.json
+├── requirements.txt      # Python dependencies
+├── .env.example          # Environment variables template
+└── README.md             # Documentation
 ```
 
 ---
 
-## 🚀 Quickstart Guide
+## 🌐 How to Setup a Permanent Ngrok Webhook Domain (Free)
 
-### Prerequisites
-- **Python 3.10+**
-- **Docker** (for PostgreSQL) or local PostgreSQL instance
-- *(Optional)* **Ngrok** (for live Razorpay webhook delivery)
+Free ngrok accounts include **1 free static domain** that never changes when restarted:
 
-### 1. Clone & Setup Virtual Environment
-```bash
-git clone https://github.com/sagar-grv/razorpay-lifeline.git
-cd razorpay-lifeline
+1. Go to [dashboard.ngrok.com/endpoints](https://dashboard.ngrok.com/endpoints).
+2. Click **"New Domain"** or **"Claim Static Domain"** (e.g., `stellar-star-123.ngrok-free.app`).
+3. Add the claimed domain to your `.env` file:
+   ```env
+   NGROK_STATIC_DOMAIN="stellar-star-123.ngrok-free.app"
+   ```
+4. In your [Razorpay Dashboard](https://dashboard.razorpay.com/) (**Settings -> Webhooks**), enter:
+   - **URL**: `https://stellar-star-123.ngrok-free.app/webhook/razorpay`
+   - **Secret**: `whsec_test_secret_12345`
+   - **Events**: `payment.failed`, `payment_link.paid`
 
-python -m venv venv
-# Windows:
-.\venv\Scripts\activate
-# Linux/macOS:
-source venv/bin/activate
+---
 
-pip install -r requirements.txt
-```
+## 🚀 1-Click Quickstart
 
-### 2. Configure Environment Variables
-Copy `.env.example` to `.env`:
-```bash
-cp .env.example .env
-```
-Update with your configuration:
+### 1. Configure `.env`
 ```env
 RAZORPAY_WEBHOOK_SECRET="whsec_test_secret_12345"
 DATABASE_URL="postgresql://postgres:password@localhost:5432/lifeline_db"
-GROQ_API_KEY="gsk_your_groq_key"          # Or leave dummy for built-in smart mock
-RAZORPAY_KEY_ID="rzp_test_your_id"        # From Razorpay dashboard (Test Mode)
+GROQ_API_KEY="gsk_your_groq_key"
+RAZORPAY_KEY_ID="rzp_test_your_id"
 RAZORPAY_KEY_SECRET="your_secret"
 HTTPSMS_API_KEY="test_key"
 HTTPSMS_FROM_NUMBER="+1234567890"
+NGROK_STATIC_DOMAIN=""
 ```
 
-### 3. Start PostgreSQL Database
+### 2. Start PostgreSQL Container
 ```bash
 docker run --name lifeline_db -e POSTGRES_PASSWORD=password -e POSTGRES_DB=lifeline_db -p 5432:5432 -d postgres
-```
-
-Initialize database tables:
-```bash
 python reset_db.py
 ```
 
-### 4. Start Backend Server & Streamlit Dashboard
-
-**Terminal 1 — FastAPI Backend:**
+### 3. Launch the Entire System with Single Command
 ```bash
-uvicorn main:app --reload --port 8000
+python run_system.py
 ```
+*(Or double-click `start.bat` on Windows)*
 
-**Terminal 2 — Streamlit Dashboard:**
-```bash
-streamlit run dashboard.py
-```
-Open [http://localhost:8501](http://localhost:8501) in your browser.
-
----
-
-## 🧪 Testing & Validation
-
-### 1. Batch Simulation (50 Transactions)
-Simulates high-throughput failure traffic across various failure types:
-```bash
-python batch_tester.py
-```
-
-### 2. Test Inbound Stopping Rule (Opt-Out)
-Send a simulated customer opt-out reply:
-```bash
-python -c "import requests; r = requests.post('http://127.0.0.1:8000/webhook/httpsms', json={'from': '+919876543210', 'content': 'STOP PLEASE'}); print(r.text)"
-```
-Output:
-```text
-[INBOUND SMS] From: +919876543210 | Message: stop please
-[STOPPING RULE TRIGGERED] User opted out. Escalating to human agent.
-```
-
-### 3. Live Razorpay Webhook via Ngrok Tunnel
-```bash
-ngrok http 8000
-```
-Add forwarding URL to **Razorpay Dashboard -> Settings -> Webhooks**:
-- URL: `https://<your-ngrok-subdomain>.ngrok-free.app/webhook/razorpay`
-- Secret: `whsec_test_secret_12345`
-- Events: `payment.failed`, `payment_link.paid`
+This single command automatically:
+* Starts PostgreSQL Docker container
+* Starts FastAPI Backend on `http://localhost:8000`
+* Starts Ngrok tunnel and prints your live Webhook URL
+* Starts React Animated Dashboard on `http://localhost:5173` (or view at `http://localhost:8000`)
+* Streams real-time Uvicorn & AI logs directly to your terminal and in-browser log tray!
 
 ---
 
@@ -201,4 +172,4 @@ Add forwarding URL to **Razorpay Dashboard -> Settings -> Webhooks**:
 ---
 
 ## 📜 License
-Distributed under the MIT License. See `LICENSE` for more information.
+Distributed under the MIT License. See `LICENSE` for details.
