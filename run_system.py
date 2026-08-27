@@ -56,11 +56,12 @@ def start_backend():
 
 def start_ngrok():
     print("[3/4] Starting Ngrok Public Tunnel...")
-    static_domain = os.getenv("NGROK_STATIC_DOMAIN", "").strip()
+    raw_domain = os.getenv("NGROK_STATIC_DOMAIN", "").strip()
+    clean_domain = raw_domain.replace("https://", "").replace("http://", "").strip("/")
     
-    if static_domain:
-        print(f"  -> Using Permanent Static Ngrok Domain: https://{static_domain}")
-        cmd = ["ngrok", "http", f"--domain={static_domain}", "8000", "--log=stdout"]
+    if clean_domain:
+        print(f"  -> Using Permanent Static Ngrok Domain: https://{clean_domain}")
+        cmd = ["ngrok", "http", f"--domain={clean_domain}", "8000", "--log=stdout"]
     else:
         print("  -> Using Dynamic Ngrok Tunnel (Add NGROK_STATIC_DOMAIN to .env for a permanent URL)")
         cmd = ["ngrok", "http", "8000", "--log=stdout"]
