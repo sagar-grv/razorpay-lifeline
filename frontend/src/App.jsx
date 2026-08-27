@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Header from './components/Header';
 import MetricCards from './components/MetricCards';
+import RecoveryPipelineVisualizer from './components/RecoveryPipelineVisualizer';
 import RecoveryChart from './components/RecoveryChart';
 import SimulatorControls from './components/SimulatorControls';
 import PaymentTable from './components/PaymentTable';
@@ -8,7 +9,7 @@ import LiveTerminal from './components/LiveTerminal';
 import AICopilotModal from './components/AICopilotModal';
 import PaymentDetailModal from './components/PaymentDetailModal';
 import CommandPalette from './components/CommandPalette';
-import { Terminal, Activity, Sparkles, Command } from 'lucide-react';
+import { Terminal } from 'lucide-react';
 
 export default function App() {
   const [stats, setStats] = useState(null);
@@ -80,7 +81,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#070A11] text-slate-100 flex flex-col selection:bg-sky-500 selection:text-white">
+    <div className="min-h-screen bg-[#060911] text-slate-100 flex flex-col selection:bg-sky-500 selection:text-white">
       
       {/* Navigation Header */}
       <Header
@@ -96,18 +97,19 @@ export default function App() {
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 lg:px-8 py-6 space-y-6 pb-28">
         
-        {/* Metric Cards Grid */}
+        {/* Metric Cards Grid (Asymmetric) */}
         <MetricCards stats={stats} />
 
-        {/* Simulator & Sandbox Action Bar */}
+        {/* Signature Element: Interactive Autonomous Recovery Pipeline */}
+        <RecoveryPipelineVisualizer stats={stats} />
+
+        {/* Interactive Testing Sandbox */}
         <SimulatorControls onSimulateSuccess={fetchData} />
 
-        {/* Charts & Breakdown Grid */}
-        <div className="grid grid-cols-1 gap-6">
-          <RecoveryChart stats={stats} />
-        </div>
+        {/* Error Code Breakdown Grid */}
+        <RecoveryChart stats={stats} />
 
-        {/* Audit Ledger Table */}
+        {/* Forensic Audit Ledger Table */}
         <PaymentTable
           payments={payments}
           onSelectPayment={(payment) => setSelectedPayment(payment)}
@@ -115,7 +117,7 @@ export default function App() {
 
       </main>
 
-      {/* Bottom Sticky Floating Live Terminal Bar */}
+      {/* Bottom Floating Live Telemetry Tray */}
       <div className="fixed bottom-0 left-0 right-0 z-40 max-w-7xl mx-auto px-4 lg:px-8 pointer-events-none">
         <div className="pointer-events-auto">
           {isTerminalOpen ? (
@@ -124,7 +126,7 @@ export default function App() {
             <div className="flex justify-end pb-3">
               <button
                 onClick={() => setIsTerminalOpen(true)}
-                className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-white text-xs font-mono font-medium border border-slate-700/80 shadow-2xl backdrop-blur-xl transition-all fintech-button"
+                className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white text-xs font-numeric font-medium border border-slate-700/80 shadow-2xl backdrop-blur-xl transition-all tap-target"
               >
                 <Terminal className="w-3.5 h-3.5 text-sky-400" />
                 <span>Engine Telemetry</span>
@@ -153,7 +155,7 @@ export default function App() {
         stats={stats}
       />
 
-      {/* Payment Forensic Detail Modal */}
+      {/* Forensic Transaction Detail Modal */}
       <PaymentDetailModal
         payment={selectedPayment}
         onClose={() => setSelectedPayment(null)}
