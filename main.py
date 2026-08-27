@@ -77,12 +77,12 @@ async def background_recovery_task(payment_id: str, failure_reason: str, amount:
         
         execution_status = "PENDING"
         
-        # 2. Execute Action
-        if action == "SEND_SMS_REMINDER":
-            # 1. Generate REAL Razorpay Payment Link
+        # 2. Execute Action (No failure goes uncommunicated policy)
+        if action in ["SEND_SMS_REMINDER", "SCHEDULE_AUTO_RETRY"]:
+            # 1. Generate REAL Razorpay Payment Link for all failure categories
             payment_link = create_razorpay_payment_link(amount, user_phone)
             
-            # 2. Inject link into message
+            # 2. Inject link into AI message
             if "[link]" in sms_msg:
                 sms_msg = sms_msg.replace("[link]", payment_link)
             else:
@@ -90,13 +90,14 @@ async def background_recovery_task(payment_id: str, failure_reason: str, amount:
                 
             log_event(f"Generated Live Razorpay Link: {safe_log(payment_link)}")
             
-            # 3. Multi-Channel Dispatch (WhatsApp -> SMS -> Mock)
+            # 3. If transient error, log the background retry schedule
+            if action == "SCHEDULE_AUTO_RETRY":
+                log_event(f"Silent auto-retry scheduled in 10 mins for {safe_log(payment_id)}")
+            
+            # 4. Multi-Channel Dispatch (WhatsApp -> SMS -> Mock)
             target_phone = os.getenv("WHATSAPP_TO_NUMBER", user_phone)
             execution_status = await dispatch_recovery_message(target_phone, sms_msg)
             log_event(f"Multi-Channel Dispatch to {safe_log(target_phone)}: {safe_log(execution_status)}", level="SUCCESS" if "SENT" in execution_status else "INFO")
-        elif action == "SCHEDULE_AUTO_RETRY":
-            execution_status = "RETRY_SCHEDULED"
-            log_event(f"Silent auto-retry scheduled in 10 mins for {safe_log(payment_id)}")
         else:
             execution_status = "ESCALATED"
             log_event(f"Escalated {safe_log(payment_id)} to human customer support")
