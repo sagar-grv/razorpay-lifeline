@@ -7,18 +7,7 @@ from datetime import datetime
 
 load_dotenv()
 
-db_url = os.getenv("DATABASE_URL", "postgresql://postgres:password@localhost/lifeline_db")
-
-try:
-    engine = create_engine(db_url, pool_pre_ping=True)
-    # Test connection
-    with engine.connect() as conn:
-        pass
-except Exception:
-    # Graceful SQLite fallback if PostgreSQL container is temporarily starting/offline
-    sqlite_url = "sqlite:///./lifeline.db"
-    engine = create_engine(sqlite_url, connect_args={"check_same_thread": False})
-
+engine = create_engine(os.getenv("DATABASE_URL"))
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -33,18 +22,7 @@ class FailedPayment(Base):
     amount = Column(Integer)
     failure_reason = Column(String)
     status = Column(String, default="PENDING_RECOVERY")
-    final_status = Column(String, default="PENDING_RECOVERY")
-    razorpay_payment_link_id = Column(String, nullable=True, index=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-class RecoveryLink(Base):
-    __tablename__ = "recovery_links"
-    id = Column(Integer, primary_key=True, index=True)
-    original_payment_id = Column(String, index=True)
-    razorpay_payment_link_id = Column(String, unique=True, index=True)
-    short_url = Column(String)
-    amount = Column(Integer)
-    status = Column(String, default="PENDING_RECOVERY")
+    final_status = Column(String, default="PENDING")
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class RecoveryAuditLog(Base):
@@ -55,6 +33,16 @@ class RecoveryAuditLog(Base):
     ai_reasoning = Column(Text)
     action_taken = Column(String)
     execution_status = Column(String, default="PENDING")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class RecoveryLink(Base):
+    __tablename__ = "recovery_links"
+    id = Column(Integer, primary_key=True, index=True)
+    payment_id = Column(String, index=True)
+    razorpay_payment_link_id = Column(String, unique=True, index=True)
+    short_url = Column(String)
+    amount = Column(Integer)
+    status = Column(String, default="PENDING_RECOVERY")
     created_at = Column(DateTime, default=datetime.utcnow)
 
 Base.metadata.create_all(bind=engine)
