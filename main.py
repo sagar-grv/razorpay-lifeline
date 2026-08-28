@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 import hashlib, hmac, json, os, random, asyncio, time, datetime, sys
 from dotenv import load_dotenv
-from database import SessionLocal, FailedPayment, RecoveryAuditLog
+from database import SessionLocal, FailedPayment, RecoveryLink, RecoveryAuditLog
 from ai_brain import decide_recovery_action
 from channels import dispatch_recovery_message, send_sms_httpsms
 from razorpay_actions import create_razorpay_payment_link
@@ -66,11 +66,11 @@ async def background_recovery_task(payment_id: str, failure_reason: str, amount:
         log_event(f"Triggering AI Recovery pipeline for {safe_log(payment_id)} (Reason: {safe_log(failure_reason)}, Amount: Rs {amount/100:.2f})")
         
         # 1. AI Brain decides action
-        ai_decision = decide_recovery_action(failure_reason)
+        ai_decision = decide_recovery_action(failure_reason, amount_in_rupees=amount/100.0)
         action = ai_decision.get("action")
         reasoning = ai_decision.get("reasoning")
         sms_msg = ai_decision.get("sms_message", "")
-        model_used = ai_decision.get("model_used", "openai/gpt-oss-120b (Groq)")
+        model_used = ai_decision.get("model_used", "ollama/llama3.2:3b (local on-prem)")
         
         log_event(f"AI Decision for {safe_log(payment_id)}: [{safe_log(action)}] via {safe_log(model_used)}")
         log_event(f"AI Reasoning: {safe_log(reasoning)}")
@@ -79,10 +79,48 @@ async def background_recovery_task(payment_id: str, failure_reason: str, amount:
         
         # 2. Execute Action (No failure goes uncommunicated policy)
         if action in ["SEND_SMS_REMINDER", "SCHEDULE_AUTO_RETRY"]:
-            # 1. Generate REAL Razorpay Payment Link for all failure categories
-            payment_link = create_razorpay_payment_link(amount, user_phone)
+            # 1. Generate REAL Razorpay Payment Link / Invoice
+            link_data = create_razorpay_payment_link(amount, user_phone)
             
-            # 2. Inject link into AI message
+            if not link_data or not link_data.get("short_url"):
+                execution_status = "LINK_CREATION_FAILED"
+                pay = db.query(FailedPayment).filter(FailedPayment.razorpay_payment_id == payment_id).first()
+                if pay:
+                    pay.final_status = "ESCALATED"
+                    db.commit()
+                log_event(f"[ESCALATION] Payment link generation failed for {safe_log(payment_id)}; user message suppressed to avoid broken link.", level="WARN")
+                
+                log = RecoveryAuditLog(
+                    payment_id=payment_id,
+                    ai_model_used=model_used,
+                    ai_reasoning=reasoning,
+                    action_taken="ESCALATE_TO_HUMAN",
+                    execution_status=execution_status
+                )
+                db.add(log)
+                db.commit()
+                return
+
+            payment_link = link_data["short_url"]
+            plink_id = link_data.get("id", f"plink_{int(time.time())}")
+            
+            # 2. Persist RecoveryLink for Ground-Truth tracking
+            rec_link = RecoveryLink(
+                original_payment_id=payment_id,
+                razorpay_payment_link_id=plink_id,
+                short_url=payment_link,
+                amount=amount,
+                status="PENDING_RECOVERY"
+            )
+            db.add(rec_link)
+            
+            pay = db.query(FailedPayment).filter(FailedPayment.razorpay_payment_id == payment_id).first()
+            if pay:
+                pay.razorpay_payment_link_id = plink_id
+                pay.final_status = "PENDING_RECOVERY"
+            db.commit()
+            
+            # 3. Inject link into AI message
             if "[link]" in sms_msg:
                 sms_msg = sms_msg.replace("[link]", payment_link)
             else:
@@ -90,32 +128,24 @@ async def background_recovery_task(payment_id: str, failure_reason: str, amount:
                 
             log_event(f"Generated Live Razorpay Link: {safe_log(payment_link)}")
             
-            # 3. If transient error, log the background retry schedule
+            # 4. If transient error, log the background retry schedule
             if action == "SCHEDULE_AUTO_RETRY":
                 log_event(f"Silent auto-retry scheduled in 10 mins for {safe_log(payment_id)}")
             
-            # 4. Multi-Channel Dispatch (WhatsApp -> SMS -> Mock)
+            # 5. Multi-Channel Dispatch (WhatsApp -> SMS -> Mock)
             target_phone = os.getenv("WHATSAPP_TO_NUMBER", user_phone)
             execution_status = await dispatch_recovery_message(target_phone, sms_msg)
             log_event(f"Multi-Channel Dispatch to {safe_log(target_phone)}: {safe_log(execution_status)}", level="SUCCESS" if "SENT" in execution_status else "INFO")
+            log_event(f"[PENDING] Recovery link sent for {safe_log(payment_id)}; awaiting payment_link.paid webhook.")
         else:
             execution_status = "ESCALATED"
+            pay = db.query(FailedPayment).filter(FailedPayment.razorpay_payment_id == payment_id).first()
+            if pay:
+                pay.final_status = "ESCALATED"
+                db.commit()
             log_event(f"Escalated {safe_log(payment_id)} to human customer support")
-            
-        # 4. CLOSED LOOP: did user pay after intervention?
-        SUCCESS_PROB = {"WHATSAPP_SENT": 0.65, "SMS_SENT": 0.35, "RETRY_SCHEDULED": 0.80, "ESCALATED": 0.15}
-        await asyncio.sleep(1)
-        recovered = random.random() < SUCCESS_PROB.get(execution_status, 0.10)
-        final_status = "RECOVERED" if recovered else "LOST"
 
-        pay = db.query(FailedPayment).filter(FailedPayment.razorpay_payment_id == payment_id).first()
-        if pay:
-            if pay.final_status != "ESCALATED":
-                pay.final_status = final_status
-            db.commit()
-            log_event(f"Closed-Loop outcome for {safe_log(payment_id)}: {pay.final_status}", level="SUCCESS" if pay.final_status == "RECOVERED" else "WARN")
-
-        # 3. Save Audit Log
+        # Save Audit Log
         log = RecoveryAuditLog(
             payment_id=payment_id,
             ai_model_used=model_used,
@@ -166,14 +196,39 @@ async def razorpay_webhook(
 
     event_type = data.get('event', 'payment.failed')
     
-    # Handle payment link paid events (with Thank You message)
-    if event_type == 'payment_link.paid':
-        plink_entity = data.get('payload', {}).get('payment_link', {}).get('entity', {})
-        plink_id = plink_entity.get('id', 'plink_unknown')
-        amount = plink_entity.get('amount', 0)
-        contact = plink_entity.get('customer', {}).get('contact') or os.getenv("WHATSAPP_TO_NUMBER", "918788021157")
+    # Handle payment link & invoice paid events (Ground-truth recovery confirmation)
+    if event_type in ['payment_link.paid', 'invoice.paid']:
+        entity = (
+            data.get('payload', {}).get('payment_link', {}).get('entity', {})
+            or data.get('payload', {}).get('invoice', {}).get('entity', {})
+        )
+        plink_id = entity.get('id', 'plink_unknown')
+        amount = entity.get('amount', 0)
+        contact = entity.get('customer', {}).get('contact') or os.getenv("WHATSAPP_TO_NUMBER", "918788021157")
+        
+        # Ground-truth update: Find mapped original payment
+        rec_link = db.query(RecoveryLink).filter(RecoveryLink.razorpay_payment_link_id == plink_id).first()
+        if rec_link:
+            rec_link.status = "PAID"
+            orig_pay = db.query(FailedPayment).filter(FailedPayment.razorpay_payment_id == rec_link.original_payment_id).first()
+            if orig_pay:
+                orig_pay.final_status = "RECOVERED_GROUND_TRUTH"
+                log_event(f"[GROUND_TRUTH] {rec_link.original_payment_id} recovered via {plink_id}.", level="SUCCESS")
+            
+            # Audit log for ground truth recovery
+            audit_entry = RecoveryAuditLog(
+                payment_id=rec_link.original_payment_id,
+                ai_model_used="Webhook Ground-Truth",
+                ai_reasoning="Customer completed payment on generated recovery link.",
+                action_taken="GROUND_TRUTH_PAYMENT_CONFIRMED",
+                execution_status="RECOVERED_GROUND_TRUTH"
+            )
+            db.add(audit_entry)
+            db.commit()
+        else:
+            log_event(f"Razorpay Payment Link Paid: {plink_id}", level="SUCCESS")
+
         thank_you_msg = f"Thank you for your payment of Rs {amount/100:.2f}! Your transaction {plink_id} was successful. We appreciate your promptness."
-        log_event(f"Razorpay Payment Link Paid: {plink_id}", level="SUCCESS")
         background_tasks.add_task(send_thank_you_message, contact, thank_you_msg, plink_id)
         return {"status": "payment_link_paid_acknowledged"}
 
