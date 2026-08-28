@@ -23,26 +23,60 @@ def print_banner():
     print(banner)
 
 def check_docker_services():
-    print("[1/4] Checking PostgreSQL & Evolution API Docker Services...")
+    print("[1/4] Ensuring PostgreSQL & Evolution API Docker Services are Running...")
     try:
-        # 1. PostgreSQL check
+        # Check Docker CLI availability
+        dock_check = subprocess.run(["docker", "info"], capture_output=True, text=True)
+        if dock_check.returncode != 0:
+            print("  ⚠️  Docker Desktop is not running. Please start Docker Desktop to enable PostgreSQL and WhatsApp containers.")
+            return
+
+        # 1. PostgreSQL check & auto-start
         res_pg = subprocess.run(["docker", "ps", "-a", "--filter", "name=lifeline_db", "--format", "{{.Status}}"], capture_output=True, text=True)
         if "Up" in res_pg.stdout:
-            print("  -> PostgreSQL Container is ALIVE on port 5432.")
-        else:
-            print("  -> Starting PostgreSQL Container (lifeline_db)...")
+            print("  -> PostgreSQL Container (lifeline_db) is ALIVE on port 5432.")
+        elif res_pg.stdout.strip():
+            print("  -> Starting existing PostgreSQL Container (lifeline_db)...")
             subprocess.run(["docker", "start", "lifeline_db"], capture_output=True)
             time.sleep(2)
+            print("  -> PostgreSQL Container (lifeline_db) started successfully.")
+        else:
+            print("  -> Creating and starting new PostgreSQL Container (lifeline_db)...")
+            subprocess.run([
+                "docker", "run", "-d",
+                "--name", "lifeline_db",
+                "-e", "POSTGRES_PASSWORD=password",
+                "-p", "5432:5432",
+                "postgres"
+            ], capture_output=True)
+            time.sleep(3)
+            print("  -> PostgreSQL Container (lifeline_db) created and started on port 5432.")
             
-        # 2. Evolution API check
+        # 2. Evolution API check & auto-start
         if os.getenv("WHATSAPP_ENABLED", "false").lower() == "true":
             res_evo = subprocess.run(["docker", "ps", "-a", "--filter", "name=evolution-api", "--format", "{{.Status}}"], capture_output=True, text=True)
             if "Up" in res_evo.stdout:
-                print("  -> Evolution API Container is ALIVE on port 8080.")
+                print("  -> Evolution API Container (evolution-api) is ALIVE on port 8080.")
             elif res_evo.stdout.strip():
-                print("  -> Starting Evolution API Container (evolution-api)...")
+                print("  -> Starting existing Evolution API Container (evolution-api)...")
                 subprocess.run(["docker", "start", "evolution-api"], capture_output=True)
                 time.sleep(2)
+                print("  -> Evolution API Container (evolution-api) started successfully.")
+            else:
+                print("  -> Creating and starting new Evolution API Container (evolution-api)...")
+                subprocess.run([
+                    "docker", "run", "-d",
+                    "--name", "evolution-api",
+                    "-p", "8080:8080",
+                    "-e", "AUTHENTICATION_API_KEY=lifeline-secret-key",
+                    "-e", "DATABASE_ENABLED=true",
+                    "-e", "DATABASE_PROVIDER=postgresql",
+                    "-e", "DATABASE_CONNECTION_URI=postgresql://postgres:password@host.docker.internal:5432/evolution_db",
+                    "-e", "CACHE_REDIS_ENABLED=false",
+                    "evoapicloud/evolution-api:latest"
+                ], capture_output=True)
+                time.sleep(4)
+                print("  -> Evolution API Container (evolution-api) created and started on port 8080.")
     except Exception as e:
         print(f"  -> Docker check notice: {e}")
 
