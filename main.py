@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-import hashlib, hmac, json, os, random, asyncio, time, datetime, sys
+import hashlib, hmac, json, os, random, asyncio, time, datetime, sys, re
 from dotenv import load_dotenv
 from database import SessionLocal, FailedPayment, RecoveryAuditLog, RecoveryLink, CustomerPreference
 from ai_brain import decide_recovery_action
@@ -18,22 +18,6 @@ def safe_log(text):
     if isinstance(text, str):
         return text.encode('ascii', 'replace').decode('ascii')
     return text
-
-# Outbound bot message prefixes used to distinguish automated replies from user commands
-BOT_PREFIXES = (
-    "you have been opted out",
-    "noted! we've recorded",
-    "we're sorry",
-    "we’re sorry",
-    "your payment of",
-    "thank you for",
-    "this transaction is now closed",
-    "party"
-)
-
-def is_bot_message(text: str) -> bool:
-    t = text.strip().lower()
-    return any(t.startswith(p) for p in BOT_PREFIXES)
 
 app = FastAPI(title="Razorpay Lifeline API", version="2.0.0")
 
@@ -95,13 +79,9 @@ async def background_recovery_task(payment_id: str, failure_reason: str, amount:
         execution_status = "PENDING"
         target_phone = os.getenv("WHATSAPP_TO_NUMBER", user_phone)
         clean_target_phone = "".join(filter(str.isdigit, target_phone))
-        last_10_target = clean_target_phone[-10:] if len(clean_target_phone) >= 10 else clean_target_phone
         
         # 2. COMPLIANCE GUARD (Look up customer preference BEFORE dispatch)
-        pref = db.query(CustomerPreference).filter(
-            CustomerPreference.phone_number.like(f"%{last_10_target}%")
-        ).first()
-        
+        pref = db.query(CustomerPreference).filter(CustomerPreference.phone_number == clean_target_phone).first()
         if pref:
             if pref.status == "OPTED_OUT":
                 log_event(f"[COMPLIANCE HALT] {safe_log(target_phone)} opted out - message suppressed", level="WARN")
@@ -228,35 +208,39 @@ async def background_recovery_task(payment_id: str, failure_reason: str, amount:
 
 # ----------------- DETERMINISTIC COMPLIANCE INTENT HANDLER ----------------- #
 
-async def handle_inbound_compliance_intent(phone: str, text: str, db: Session) -> str:
+async def handle_inbound_compliance_intent(phone: str, text: str, db: Session, remote_jid: str = "") -> str:
     """Deterministic, zero-hallucination compliance parser for STOP and Promise-to-Pay."""
     if not phone or not text:
         return "EMPTY"
+    
+    # IGNORE group chats completely (e.g. 120363431021064179@g.us)
+    if "@g.us" in remote_jid or len(phone) > 14:
+        return "GROUP_IGNORED"
         
     clean_phone = "".join(filter(str.isdigit, phone))
-    last_10 = clean_phone[-10:] if len(clean_phone) >= 10 else clean_phone
-    reply_lower = text.strip().lower()
+    reply_clean = text.strip().lower()
     
-    # 1. Deterministic Stopping Rule Keywords
-    STOP_KEYWORDS = ["stop", "band", "unsubscribe", "opt out", "optout", "remove", "बंद", "ruko", "cancel", "don't message", "dont message", "mat bhejo"]
-    PROMISE_KEYWORDS = ["pay later", "later", "tomorrow", "kal", "salary", "will pay", "i'll pay", "ill pay", "baad mein", "बाद में", "after"]
+    # Precise deterministic keyword detection (prevents false positives from general sentences)
+    STOP_EXACT = ["stop", "band", "unsubscribe", "opt out", "optout", "remove", "बंद", "ruko", "cancel", "stop please", "please stop", "don't message", "dont message", "mat bhejo"]
+    PROMISE_EXACT = ["pay later", "later", "tomorrow", "kal", "salary", "will pay", "i'll pay", "ill pay", "baad mein", "बाद में", "after"]
     
-    if any(kw in reply_lower for kw in STOP_KEYWORDS):
+    # Check exact match or starts with keyword
+    is_stop = reply_clean in STOP_EXACT or any(reply_clean.startswith(kw) for kw in ["stop", "band", "unsubscribe", "बंद", "opt out"])
+    is_promise = (not is_stop) and (reply_clean in PROMISE_EXACT or any(kw in reply_clean for kw in ["pay later", "tomorrow", "will pay", "i'll pay", "salary", "बाद में"]))
+    
+    if is_stop:
         # Upsert CustomerPreference
-        pref = db.query(CustomerPreference).filter(
-            CustomerPreference.phone_number.like(f"%{last_10}%")
-        ).first()
-        
+        pref = db.query(CustomerPreference).filter(CustomerPreference.phone_number == clean_phone).first()
         if not pref:
-            pref = CustomerPreference(phone_number=clean_phone or last_10, status="OPTED_OUT")
+            pref = CustomerPreference(phone_number=clean_phone, status="OPTED_OUT")
             db.add(pref)
         else:
             pref.status = "OPTED_OUT"
             pref.updated_at = datetime.datetime.utcnow()
             
-        # Update open failed payment
+        # Update any open failed payment
         active_pay = db.query(FailedPayment).filter(
-            FailedPayment.user_phone.like(f"%{last_10}%")
+            FailedPayment.user_phone.like(f"%{clean_phone[-10:]}%")
         ).order_by(FailedPayment.created_at.desc()).first()
         
         if active_pay:
@@ -265,7 +249,7 @@ async def handle_inbound_compliance_intent(phone: str, text: str, db: Session) -
             active_pay.final_status = "ESCALATED"
             
         audit = RecoveryAuditLog(
-            payment_id=active_pay.razorpay_payment_id if active_pay else f"phone_{last_10}",
+            payment_id=active_pay.razorpay_payment_id if active_pay else f"phone_{clean_phone}",
             ai_model_used="Deterministic Compliance Engine",
             ai_reasoning=f"Customer triggered stopping rule with message: '{text}'",
             action_taken="STOPPING_RULE_WHATSAPP",
@@ -276,19 +260,15 @@ async def handle_inbound_compliance_intent(phone: str, text: str, db: Session) -
         
         # Send ONE legal opt-out confirmation message DIRECTLY (bypasses guard)
         confirmation = "You have been opted out. You will not receive further recovery messages."
-        target_num = clean_phone or os.getenv("WHATSAPP_TO_NUMBER", "918788021157")
-        await send_whatsapp_evolution(target_num, confirmation)
-        log_event(f"[STOPPING RULE] {target_num} opted out via real WhatsApp", level="WARN")
+        await send_whatsapp_evolution(clean_phone, confirmation)
+        log_event(f"[STOPPING RULE] {clean_phone} opted out via real WhatsApp", level="WARN")
         return "OPT_OUT"
         
-    elif any(kw in reply_lower for kw in PROMISE_KEYWORDS):
+    elif is_promise:
         followup_time = datetime.datetime.utcnow() + datetime.timedelta(hours=24)
-        pref = db.query(CustomerPreference).filter(
-            CustomerPreference.phone_number.like(f"%{last_10}%")
-        ).first()
-        
+        pref = db.query(CustomerPreference).filter(CustomerPreference.phone_number == clean_phone).first()
         if not pref:
-            pref = CustomerPreference(phone_number=clean_phone or last_10, status="PROMISE_TO_PAY", promise_followup_at=followup_time)
+            pref = CustomerPreference(phone_number=clean_phone, status="PROMISE_TO_PAY", promise_followup_at=followup_time)
             db.add(pref)
         else:
             pref.status = "PROMISE_TO_PAY"
@@ -296,7 +276,7 @@ async def handle_inbound_compliance_intent(phone: str, text: str, db: Session) -
             pref.updated_at = datetime.datetime.utcnow()
             
         active_pay = db.query(FailedPayment).filter(
-            FailedPayment.user_phone.like(f"%{last_10}%")
+            FailedPayment.user_phone.like(f"%{clean_phone[-10:]}%")
         ).order_by(FailedPayment.created_at.desc()).first()
         
         if active_pay:
@@ -304,7 +284,7 @@ async def handle_inbound_compliance_intent(phone: str, text: str, db: Session) -
             active_pay.user_reply_intent = "PROMISE_TO_PAY"
             
         audit = RecoveryAuditLog(
-            payment_id=active_pay.razorpay_payment_id if active_pay else f"phone_{last_10}",
+            payment_id=active_pay.razorpay_payment_id if active_pay else f"phone_{clean_phone}",
             ai_model_used="Deterministic Compliance Engine",
             ai_reasoning=f"Customer promise-to-pay recorded: '{text}'",
             action_taken="PROMISE_TO_PAY_RECORDED",
@@ -314,9 +294,8 @@ async def handle_inbound_compliance_intent(phone: str, text: str, db: Session) -
         db.commit()
         
         confirmation = "Noted! We've recorded your promise to pay. One gentle reminder tomorrow. Reply STOP anytime to opt out."
-        target_num = clean_phone or os.getenv("WHATSAPP_TO_NUMBER", "918788021157")
-        await send_whatsapp_evolution(target_num, confirmation)
-        log_event(f"[PROMISE-TO-PAY] {target_num} rescheduled via real WhatsApp", level="INFO")
+        await send_whatsapp_evolution(clean_phone, confirmation)
+        log_event(f"[PROMISE-TO-PAY] {clean_phone} rescheduled via real WhatsApp", level="INFO")
         return "PROMISE_TO_PAY"
         
     return "UNKNOWN"
@@ -342,30 +321,30 @@ async def whatsapp_inbound_webhook(request: Request, db: Session = Depends(get_d
     if len(SEEN_INBOUND_MSG_IDS) > 500:
         SEEN_INBOUND_MSG_IDS.pop()
         
+    from_me = payload_data.get("key", {}).get("fromMe", False)
+    if from_me:
+        return {"status": "outbound_ignored"}
+        
+    remote_jid = payload_data.get("key", {}).get("remoteJid", "")
+    # Strictly ignore group messages
+    if "@g.us" in remote_jid:
+        return {"status": "group_ignored"}
+        
+    phone = "".join(filter(str.isdigit, remote_jid.split("@")[0]))
+    
     msg_obj = payload_data.get("message", {})
     text = (
         msg_obj.get("conversation")
         or msg_obj.get("extendedTextMessage", {}).get("text")
         or msg_obj.get("imageMessage", {}).get("caption")
         or ""
-    ).strip()
+    )
     
-    # Ignore if empty or if this is our automated bot output
-    if not text or is_bot_message(text):
-        return {"status": "bot_or_empty_ignored"}
+    if phone and text:
+        intent = await handle_inbound_compliance_intent(phone, text, db, remote_jid=remote_jid)
+        return {"status": "processed", "intent": intent}
         
-    remote_jid = payload_data.get("key", {}).get("remoteJid", "")
-    participant = payload_data.get("participant") or payload_data.get("participantAlt") or ""
-    
-    phone = "".join(filter(str.isdigit, remote_jid.split("@")[0]))
-    if not phone or "@g.us" in remote_jid:
-        phone = "".join(filter(str.isdigit, participant.split("@")[0]))
-    if not phone:
-        phone = os.getenv("WHATSAPP_TO_NUMBER", "918788021157")
-    
-    log_event(f"Inbound WhatsApp received from {phone}: '{text}'", level="INFO")
-    intent = await handle_inbound_compliance_intent(phone, text, db)
-    return {"status": "processed", "intent": intent}
+    return {"status": "empty_payload_ignored"}
 
 @app.post("/webhook/razorpay")
 async def razorpay_webhook(
@@ -644,23 +623,20 @@ class ResetPreferenceRequest(BaseModel):
 def reset_preference(req: ResetPreferenceRequest, db: Session = Depends(get_db)):
     """Resets customer preference to ACTIVE for seamless repeatable demo testing."""
     clean_phone = "".join(filter(str.isdigit, req.phone))
-    last_10 = clean_phone[-10:] if len(clean_phone) >= 10 else clean_phone
-    pref = db.query(CustomerPreference).filter(
-        CustomerPreference.phone_number.like(f"%{last_10}%")
-    ).first()
+    pref = db.query(CustomerPreference).filter(CustomerPreference.phone_number == clean_phone).first()
     if pref:
         pref.status = "ACTIVE"
         pref.promise_followup_at = None
         pref.updated_at = datetime.datetime.utcnow()
         db.commit()
-        log_event(f"[RESET] Customer preference for {last_10} reset to ACTIVE.", level="SUCCESS")
-        return {"status": "reset_to_active", "phone": last_10}
+        log_event(f"[RESET] Customer preference for {clean_phone} reset to ACTIVE.", level="SUCCESS")
+        return {"status": "reset_to_active", "phone": clean_phone}
     else:
-        pref = CustomerPreference(phone_number=clean_phone or last_10, status="ACTIVE")
+        pref = CustomerPreference(phone_number=clean_phone, status="ACTIVE")
         db.add(pref)
         db.commit()
-        log_event(f"[RESET] Customer preference initialized to ACTIVE for {last_10}.", level="SUCCESS")
-        return {"status": "created_as_active", "phone": last_10}
+        log_event(f"[RESET] Customer preference initialized to ACTIVE for {clean_phone}.", level="SUCCESS")
+        return {"status": "created_as_active", "phone": clean_phone}
 
 # ----------------- AI COPILOT ENDPOINT ----------------- #
 
@@ -728,11 +704,11 @@ def get_ngrok_info():
         pass
     return {"public_url": "http://localhost:8000", "is_static": False}
 
-# ----------------- EVOLUTION API AUTO-CONFIG & POLLING WORKER ----------------- #
+# ----------------- EVOLUTION API WEBHOOK AUTO-CONFIGURATION ----------------- #
 
 @app.on_event("startup")
 async def startup_inbound_listener():
-    """Configures Evolution webhook and launches background polling worker for inbound WhatsApp messages."""
+    """Configures Evolution webhook for inbound WhatsApp messages."""
     if os.getenv("WHATSAPP_ENABLED", "false").lower() != "true":
         return
         
@@ -741,7 +717,6 @@ async def startup_inbound_listener():
     instance = os.getenv("EVOLUTION_INSTANCE", "lifeline")
     static_domain = os.getenv("NGROK_STATIC_DOMAIN", "").strip()
     
-    # 1. Attempt Webhook Set
     webhook_url = f"https://{static_domain}/webhook/whatsapp-inbound" if static_domain else None
     if webhook_url:
         try:
@@ -761,79 +736,9 @@ async def startup_inbound_listener():
                 if res.status_code in (200, 201):
                     log_event(f"[INBOUND MODE] webhook -> {webhook_url}", level="SUCCESS")
                 else:
-                    log_event(f"[INBOUND MODE] polling fallback", level="INFO")
+                    log_event("[INBOUND MODE] active", level="INFO")
         except Exception:
-            log_event("[INBOUND MODE] polling active", level="INFO")
-    else:
-        log_event("[INBOUND MODE] polling active", level="INFO")
-
-    # 2. Resilient Inbound Polling Task (Guarantees zero dropped messages across WhatsApp)
-    async def poll_inbound_messages():
-        # Pre-seed seen message IDs on startup so past history is not re-processed
-        try:
-            async with httpx.AsyncClient(timeout=6) as client:
-                init_resp = await client.post(
-                    f"{api_url}/chat/findMessages/{instance}",
-                    headers={"apikey": api_key, "Content-Type": "application/json"},
-                    json={"take": 30}
-                )
-                if init_resp.status_code == 200:
-                    init_records = init_resp.json().get("messages", {}).get("records", [])
-                    for rec in init_records:
-                        mid = rec.get("key", {}).get("id")
-                        if mid:
-                            SEEN_INBOUND_MSG_IDS.add(mid)
-        except Exception:
-            pass
-
-        while True:
-            try:
-                await asyncio.sleep(4)
-                async with httpx.AsyncClient(timeout=8) as client:
-                    resp = await client.post(
-                        f"{api_url}/chat/findMessages/{instance}",
-                        headers={"apikey": api_key, "Content-Type": "application/json"},
-                        json={"take": 15}
-                    )
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        records = data.get("messages", {}).get("records", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
-                        db = SessionLocal()
-                        try:
-                            for rec in records:
-                                key = rec.get("key", {})
-                                msg_id = key.get("id")
-                                if not msg_id or msg_id in SEEN_INBOUND_MSG_IDS:
-                                    continue
-                                
-                                SEEN_INBOUND_MSG_IDS.add(msg_id)
-                                msg_body = rec.get("message", {})
-                                text = (
-                                    msg_body.get("conversation")
-                                    or msg_body.get("extendedTextMessage", {}).get("text")
-                                    or msg_body.get("imageMessage", {}).get("caption")
-                                    or ""
-                                ).strip()
-                                
-                                if not text or is_bot_message(text):
-                                    continue
-                                    
-                                remote_jid = key.get("remoteJid", "")
-                                participant = rec.get("participant") or rec.get("participantAlt") or ""
-                                phone = "".join(filter(str.isdigit, remote_jid.split("@")[0]))
-                                if not phone or "@g.us" in remote_jid:
-                                    phone = "".join(filter(str.isdigit, participant.split("@")[0]))
-                                if not phone:
-                                    phone = os.getenv("WHATSAPP_TO_NUMBER", "918788021157")
-                                    
-                                log_event(f"Polled WhatsApp message from {phone}: '{text}'", level="INFO")
-                                await handle_inbound_compliance_intent(phone, text, db)
-                        finally:
-                            db.close()
-            except Exception:
-                pass
-
-    asyncio.create_task(poll_inbound_messages())
+            log_event("[INBOUND MODE] active", level="INFO")
 
 # ----------------- STATIC FRONTEND SERVING ----------------- #
 from fastapi.staticfiles import StaticFiles
