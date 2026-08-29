@@ -45,4 +45,11 @@ class RecoveryLink(Base):
     status = Column(String, default="PENDING_RECOVERY")
     created_at = Column(DateTime, default=datetime.utcnow)
 
+class CustomerPreference(Base):
+    __tablename__ = "customer_preferences"
+    phone_number = Column(String, primary_key=True)
+    status = Column(String, default="ACTIVE")  # ACTIVE | OPTED_OUT | PROMISE_TO_PAY
+    promise_followup_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
 Base.metadata.create_all(bind=engine)
