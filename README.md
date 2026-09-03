@@ -175,6 +175,17 @@ razorpay-lifeline/
 
 ---
 
+## 🗺️ Product Roadmap — What I'd Build Next at Razorpay
+
+| Initiative | Status | Why it matters | How it plugs into Lifeline |
+|---|---|---|---|
+| Provisional-failure confirmation window | ✅ Implemented | Payments can flip failed→authorized on delayed bank comms; showing "failed" too early causes duplicate payments and bad CX. | 45s hold + Payments API re-check before outreach. |
+| Proactive multi-touch ladder | ✅ Implemented | One message recovers ~51%; a bounded ladder (touch 1 → T+60s → T+5min) lifts recovery without spam. | CustomerPreference + stopping rules; each touch idempotent, capped at 3. |
+| Reliability & CX KPI tree | ✅ Implemented | Business/CX/reliability metrics prove the engine works, not just "messages sent". | Computed live from the audit log + webhook timestamps. |
+| Intelligent pre-failure routing | 🔜 Next | Preventing a failure beats recovering it. Route by bank, PSP, network, amount, time, device, history, downtime. | Lifeline's forensic audit log is the training set: every (failure reason × intervention × outcome) row is a labeled sample for a success-probability model upstream of the gateway. |
+
+---
+
 ## 🤝 Why Razorpay Should Hire the Engineer Behind This
 
 I didn't just build a wrapper. I built:
