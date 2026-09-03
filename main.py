@@ -142,7 +142,7 @@ async def background_recovery_task(payment_id: str, failure_reason: str, amount:
                 return
 
             payment_link = plink_data["short_url"]
-            plink_id = plink_data.get("plink_id", "plink_unknown")
+            plink_id = plink_data.get("plink_id") or plink_data.get("id", "plink_unknown")
             
             # Store ground-truth tracking mapping
             rec_link = RecoveryLink(

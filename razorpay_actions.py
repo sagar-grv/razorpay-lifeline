@@ -1,11 +1,21 @@
 import razorpay
 import os
+import time
 from dotenv import load_dotenv
 
 load_dotenv()
 
 def create_razorpay_payment_link(amount_in_paise: int, user_phone: str) -> dict | None:
     """Creates a real Razorpay Payment Link and returns dict with short_url & plink_id, or None on failure."""
+    if os.getenv("RAZORPAY_DEMO_MODE", "false").lower() == "true":
+        print("[DEMO MODE] Skipping Razorpay Payment Link creation - returning dummy link")
+        demo_id = f"plink_DEMO_{int(time.time()*1000)%10000000}"
+        return {
+            "id": demo_id,
+            "plink_id": demo_id,
+            "short_url": "https://razorpay.com/demo"
+        }
+
     key_id = os.getenv("RAZORPAY_KEY_ID")
     key_secret = os.getenv("RAZORPAY_KEY_SECRET")
     
