@@ -564,6 +564,16 @@ async def razorpay_webhook(
 
     existing = db.query(FailedPayment).filter(FailedPayment.razorpay_payment_id == payment_id).first()
     if existing:
+        log = RecoveryAuditLog(
+            payment_id=payment_id,
+            ai_model_used="PostgreSQL Idempotency Shield",
+            ai_reasoning="Duplicate webhook payload intercepted and rejected.",
+            action_taken="IDEMPOTENCY_REJECTION",
+            execution_status="DUPLICATE_REJECTED"
+        )
+        db.add(log)
+        db.commit()
+        log_event(f"[IDEMPOTENCY] Duplicate webhook rejected for {safe_log(payment_id)}", level="INFO")
         return {"status": "already_processing", "payment_id": payment_id}
 
     payload_ts = payment_entity.get('created_at')
@@ -620,6 +630,36 @@ def get_stats(db: Session = Depends(get_db)):
     baseline_rate = 22.0
     baseline_lift = ((recovery_rate - baseline_rate) / baseline_rate * 100) if recovery_rate > 0 else 0
     
+    # Reliability & CX KPIs
+    recovered_with_times = [
+        (p.paid_at - p.received_at).total_seconds() / 60.0
+        for p in payments
+        if p.final_status == "RECOVERED_GROUND_TRUTH" and p.paid_at and p.received_at and p.paid_at >= p.received_at
+    ]
+    avg_time_to_recovery_min = round(sum(recovered_with_times) / len(recovered_with_times), 1) if recovered_with_times else 0.0
+
+    webhook_latencies = [
+        abs((p.received_at - p.payload_created_at).total_seconds())
+        for p in payments
+        if p.received_at and p.payload_created_at
+    ]
+    avg_webhook_latency_s = round(sum(webhook_latencies) / len(webhook_latencies), 1) if webhook_latencies else 0.0
+
+    late_auth_count = sum(1 for p in payments if getattr(p, 'late_auth', False))
+    late_auth_rate = round((late_auth_count / total_txns * 100), 1) if total_txns > 0 else 0.0
+
+    duplicates_blocked = sum(
+        1 for log in audit_logs
+        if log.action_taken in ["IDEMPOTENCY_REJECTION", "DUPLICATE_REJECTED"]
+        or log.execution_status == "DUPLICATE_REJECTED"
+    )
+
+    outreach_suppressed = sum(
+        1 for log in audit_logs
+        if log.action_taken in ["STOPPING_RULE_WHATSAPP", "STOPPING_RULE_ENFORCED", "LATE_AUTHORIZATION_GUARD"]
+        or log.execution_status in ["COMPLIANCE_HALT", "LATE_AUTH_CONFIRMED"]
+    )
+
     provider = os.getenv("LLM_PROVIDER", "ollama")
     model_name = "ollama/llama3.2:3b (local on-prem)" if provider == "ollama" else "Groq Cloud"
     
@@ -653,6 +693,11 @@ def get_stats(db: Session = Depends(get_db)):
         "baseline_lift": round(baseline_lift, 1),
         "model_name": model_name,
         "is_live_model": True,
+        "avg_time_to_recovery_min": avg_time_to_recovery_min,
+        "avg_webhook_latency_s": avg_webhook_latency_s,
+        "late_auth_rate": late_auth_rate,
+        "duplicates_blocked": duplicates_blocked,
+        "outreach_suppressed": outreach_suppressed,
         "failure_breakdown": breakdown
     }
 
