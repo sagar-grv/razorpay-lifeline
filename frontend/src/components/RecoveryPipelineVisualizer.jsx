@@ -26,13 +26,13 @@ export default function RecoveryPipelineVisualizer({ stats }) {
     {
       id: 'triage',
       step: '02',
-      title: 'AI Root-Cause Triage',
-      subtitle: 'Groq Real-Time Inference',
+      title: 'AI Failure Triage',
+      subtitle: 'On-Prem Llama 3.2 Inference',
       icon: Cpu,
       color: 'text-purple-400',
       bgBadge: 'bg-purple-500/10 border-purple-500/30',
       metric: `${totalTxns} Triaged`,
-      detail: 'Groq Llama-3 classifies error codes into 4 discrete operational tracks (Transient Outage, Card Expiry, UPI Block, Insufficient Funds).'
+      detail: 'Local Llama maps the Razorpay failure reason to the right intervention and drafts the message.'
     },
     {
       id: 'compliance',

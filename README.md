@@ -8,7 +8,7 @@
 
 ## 🎯 The Problem
 
-Merchants lose 15–20% of revenue to failed payments, and blind retries recover only ~22%. Razorpay's webhooks already tell a merchant what failed the hard part is deciding what to do about it and how to say it. Project Lifeline is an autonomous dunning agent that uses on-prem LLM reasoning to triage each failure reason into the right intervention (remind, silently retry, or escalate), draft a personalized, tone-appropriate recovery message, and execute a bounded, TRAI-compliant recovery workflow achieving ~51% measured recovery via ground-truth payment_link.paid webhooks across the evaluation batch.
+Merchants lose 15-20% of revenue to failed payments, and blind retries recover only ~22%. Razorpay's webhooks already tell a merchant what failed - the hard part is deciding what to do about it and how to say it. Project Lifeline is an autonomous dunning agent that uses on-prem LLM reasoning to triage each failure reason into the right intervention (remind, silently retry, or escalate), draft a personalized, tone-appropriate recovery message, and execute a bounded, TRAI-compliant recovery workflow - achieving ~51% measured recovery via ground-truth payment_link.paid webhooks across the evaluation batch.
 
 > *"Razorpay provides the pipes. Lifeline is the brain."*
 
@@ -59,7 +59,7 @@ Merchants lose 15–20% of revenue to failed payments, and blind retries recover
 ### 5-Stage Pipeline
 
 1. **Ingest** — Webhook receiver with HMAC-SHA256 verification
-2. **AI Triage** — Local Llama 3.2 analyzes the Razorpay error reason
+2. **AI Triage** — local Llama maps the Razorpay failure reason to the right intervention and drafts the message.
 3. **Compliance Guard** — Action whitelist + STOP detection
 4. **Autonomous Action** — Generate Razorpay link + dispatch via WhatsApp/SMS
 5. **Settlement** — Listen for `payment_link.paid` webhook; mark RECOVERED
