@@ -61,6 +61,77 @@ async def send_thank_you_message(to_number: str, content: str, plink_id: str):
     channel_used = await dispatch_recovery_message(to_number, content)
     log_event(f"[APPRECIATION] Thank You for {plink_id} sent via {safe_log(channel_used)}", level="SUCCESS")
 
+async def ladder_followup(payment_id: str, touch_number: int, phone_number: str, recovery_link: str):
+    """Bounded proactive outreach ladder: Touch 2 (T+DELAY_1) and Touch 3 (T+DELAY_2)."""
+    delay_key = f"LADDER_DELAY_{touch_number - 1}"
+    delay_default = 60 if touch_number == 2 else 300
+    delay = int(os.getenv(delay_key, str(delay_default)))
+    
+    await asyncio.sleep(delay)
+    
+    db = SessionLocal()
+    try:
+        clean_phone = "".join(filter(str.isdigit, phone_number))
+        
+        # 1. Re-check CustomerPreference
+        pref = db.query(CustomerPreference).filter(CustomerPreference.phone_number == clean_phone).first()
+        if pref and pref.status == "OPTED_OUT":
+            log_event(f"[LADDER] {safe_log(payment_id)} skipped - opted out", level="WARN")
+            return
+        if pref and pref.status == "PROMISE_TO_PAY" and pref.promise_followup_at and datetime.datetime.utcnow() < pref.promise_followup_at:
+            log_event(f"[LADDER] {safe_log(payment_id)} skipped - promise to pay active", level="INFO")
+            return
+            
+        # 2. Re-check FailedPayment status
+        pay = db.query(FailedPayment).filter(FailedPayment.razorpay_payment_id == payment_id).first()
+        if not pay:
+            return
+            
+        if pay.final_status and pay.final_status.startswith("RECOVERED"):
+            log_event(f"[LADDER] {safe_log(payment_id)} skipped - already recovered", level="INFO")
+            return
+            
+        if pay.touch_count >= touch_number:
+            log_event(f"[LADDER] {safe_log(payment_id)} skipped - touch already sent", level="INFO")
+            return
+
+        # 3. Draft message based on touch_number
+        compliance_footer = "\n\nReply STOP to opt out, or reply 'I\'ll pay later' to reschedule."
+        if touch_number == 2:
+            message = f"Quick reminder: your payment link is still active. Complete it here: {recovery_link}{compliance_footer}"
+        else:
+            message = f"Last reminder: your order is still reserved. Complete payment here: {recovery_link}{compliance_footer}"
+            
+        # 4. Dispatch
+        dispatch_status = await dispatch_recovery_message(phone_number, message)
+        pay.touch_count = touch_number
+        db.commit()
+        
+        log_event(f"[LADDER] Touch {touch_number}/3 sent for {safe_log(payment_id)}", level="SUCCESS")
+        
+        # Audit log
+        audit = RecoveryAuditLog(
+            payment_id=payment_id,
+            ai_model_used="Lifeline Ladder Engine",
+            ai_reasoning=f"Proactive escalation ladder touch {touch_number}/3",
+            action_taken=f"LADDER_TOUCH_{touch_number}",
+            execution_status=dispatch_status
+        )
+        db.add(audit)
+        db.commit()
+        
+        # 5. If touch 3 and still not recovered, mark LOST
+        if touch_number == 3:
+            db.refresh(pay)
+            if not (pay.final_status and pay.final_status.startswith("RECOVERED")):
+                pay.final_status = "LOST"
+                db.commit()
+                log_event(f"[LADDER] Sequence exhausted for {safe_log(payment_id)}", level="WARN")
+    except Exception as e:
+        log_event(f"[LADDER] Error in touch {touch_number} for {safe_log(payment_id)}: {safe_log(str(e))}", level="ERROR")
+    finally:
+        db.close()
+
 async def background_recovery_task(payment_id: str, failure_reason: str, amount: int, user_id: str, user_phone: str = "+919876543210"):
     """Runs asynchronously after the webhook returns 200 OK."""
     db = SessionLocal()
@@ -216,12 +287,18 @@ async def background_recovery_task(payment_id: str, failure_reason: str, amount:
             execution_status = await dispatch_recovery_message(target_phone, sms_msg)
             log_event(f"Multi-Channel Dispatch to {safe_log(target_phone)}: {safe_log(execution_status)}", level="SUCCESS" if "SENT" in execution_status else "INFO")
 
-            # Set status to PENDING_RECOVERY (Ground truth source is payment_link.paid webhook)
+            # Set status to PENDING_RECOVERY and touch_count to 1
             pay = db.query(FailedPayment).filter(FailedPayment.razorpay_payment_id == payment_id).first()
             if pay:
                 pay.final_status = "PENDING_RECOVERY"
+                pay.touch_count = 1
                 db.commit()
-                log_event(f"[PENDING] Recovery link sent for {safe_log(payment_id)}; awaiting payment_link.paid webhook.", level="INFO")
+                log_event(f"[PENDING] Recovery link sent for {safe_log(payment_id)} (Touch 1/3); awaiting payment_link.paid webhook.", level="INFO")
+                
+                # Schedule Proactive Multi-Touch Ladder (Touch 2 and Touch 3)
+                if "SENT" in execution_status:
+                    asyncio.create_task(ladder_followup(payment_id, 2, target_phone, payment_link))
+                    asyncio.create_task(ladder_followup(payment_id, 3, target_phone, payment_link))
         else:
             execution_status = "ESCALATED"
             log_event(f"Escalated {safe_log(payment_id)} to human customer support")
