@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, Boolean, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 import os
@@ -23,6 +23,11 @@ class FailedPayment(Base):
     failure_reason = Column(String)
     status = Column(String, default="PENDING_RECOVERY")
     final_status = Column(String, default="PENDING")
+    received_at = Column(DateTime, default=datetime.utcnow)
+    paid_at = Column(DateTime, nullable=True)
+    late_auth = Column(Boolean, default=False)
+    touch_count = Column(Integer, default=0)
+    payload_created_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class RecoveryAuditLog(Base):
@@ -53,3 +58,21 @@ class CustomerPreference(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 Base.metadata.create_all(bind=engine)
+
+# Auto-migration for new columns in PostgreSQL
+try:
+    with engine.connect() as conn:
+        for col_name, col_type in [
+            ("received_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
+            ("paid_at", "TIMESTAMP"),
+            ("late_auth", "BOOLEAN DEFAULT FALSE"),
+            ("touch_count", "INTEGER DEFAULT 0"),
+            ("payload_created_at", "TIMESTAMP"),
+        ]:
+            try:
+                conn.execute(text(f"ALTER TABLE failed_payments ADD COLUMN IF NOT EXISTS {col_name} {col_type}"))
+                conn.commit()
+            except Exception:
+                pass
+except Exception:
+    pass

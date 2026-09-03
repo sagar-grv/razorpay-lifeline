@@ -9,6 +9,7 @@ from database import SessionLocal, FailedPayment, RecoveryAuditLog, RecoveryLink
 from ai_brain import decide_recovery_action
 from channels import dispatch_recovery_message, send_sms_httpsms, send_whatsapp_evolution
 from razorpay_actions import create_razorpay_payment_link
+import razorpay
 import urllib.request
 import httpx
 
@@ -64,6 +65,46 @@ async def background_recovery_task(payment_id: str, failure_reason: str, amount:
     """Runs asynchronously after the webhook returns 200 OK."""
     db = SessionLocal()
     try:
+        # PROVISIONAL-FAILURE CONFIRMATION WINDOW (Late-Authorization Guard)
+        confirm_delay = int(os.getenv("CONFIRM_DELAY_SECONDS", "45"))
+        if confirm_delay > 0:
+            log_event(f"[CONFIRM] Holding {confirm_delay}s to rule out late authorization for {safe_log(payment_id)}")
+            await asyncio.sleep(confirm_delay)
+
+        # After sleep, check status via Razorpay Payments API
+        try:
+            key_id = os.getenv("RAZORPAY_KEY_ID")
+            key_secret = os.getenv("RAZORPAY_KEY_SECRET")
+            if key_id and key_secret:
+                client = razorpay.Client(auth=(key_id, key_secret))
+                rzp_payment = client.payment.fetch(payment_id)
+                current_status = rzp_payment.get("status")
+                
+                if current_status in ("captured", "authorized"):
+                    log_event(f"[LATE_AUTH] {safe_log(payment_id)} recovered natively - outreach suppressed", level="SUCCESS")
+                    pay = db.query(FailedPayment).filter(FailedPayment.razorpay_payment_id == payment_id).first()
+                    if pay:
+                        pay.final_status = "RECOVERED_GROUND_TRUTH"
+                        pay.late_auth = True
+                        pay.paid_at = datetime.datetime.utcnow()
+                        db.commit()
+                    audit = RecoveryAuditLog(
+                        payment_id=payment_id,
+                        ai_model_used="Razorpay Payments API (Late Auth Guard)",
+                        ai_reasoning=f"Late authorization detected: payment flipped to {current_status} during confirmation window.",
+                        action_taken="LATE_AUTHORIZATION_GUARD",
+                        execution_status="LATE_AUTH_CONFIRMED"
+                    )
+                    db.add(audit)
+                    db.commit()
+                    return
+                elif current_status == "failed":
+                    log_event(f"[CONFIRM] Payment {safe_log(payment_id)} confirmed failed, proceeding with outreach")
+                else:
+                    log_event(f"[CONFIRM] Payment {safe_log(payment_id)} status {safe_log(str(current_status))}, proceeding with outreach")
+        except Exception as e:
+            log_event(f"[CONFIRM] status check failed, proceeding with outreach: {safe_log(str(e))}")
+
         log_event(f"Triggering AI Recovery pipeline for {safe_log(payment_id)} (Reason: {safe_log(failure_reason)}, Amount: Rs {amount/100:.2f})")
         
         # 1. AI Brain decides action
@@ -394,6 +435,7 @@ async def razorpay_webhook(
             orig_pay = db.query(FailedPayment).filter(FailedPayment.razorpay_payment_id == rec_link.payment_id).first()
             if orig_pay:
                 orig_pay.final_status = "RECOVERED_GROUND_TRUTH"
+                orig_pay.paid_at = datetime.datetime.utcnow()
             audit = RecoveryAuditLog(
                 payment_id=rec_link.payment_id,
                 ai_model_used="Razorpay Webhook Engine",
@@ -447,12 +489,17 @@ async def razorpay_webhook(
     if existing:
         return {"status": "already_processing", "payment_id": payment_id}
 
+    payload_ts = payment_entity.get('created_at')
+    payload_created_at = datetime.datetime.utcfromtimestamp(payload_ts) if payload_ts else None
+
     new_payment = FailedPayment(
         razorpay_payment_id=payment_id,
         user_id=user_id,
         user_phone=user_phone,
         amount=amount,
-        failure_reason=failure_reason
+        failure_reason=failure_reason,
+        received_at=datetime.datetime.utcnow(),
+        payload_created_at=payload_created_at
     )
     db.add(new_payment)
     db.commit()
@@ -597,7 +644,9 @@ async def simulate_payment(req: SimulatePaymentRequest, background_tasks: Backgr
         user_id=f"user_{tx_id[-4:]}",
         user_phone=req.phone,
         amount=amount_paise,
-        failure_reason=req.failure_reason
+        failure_reason=req.failure_reason,
+        received_at=datetime.datetime.utcnow(),
+        payload_created_at=datetime.datetime.utcnow()
     )
     db.add(new_payment)
     db.commit()
