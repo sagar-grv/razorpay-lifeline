@@ -1,0 +1,306 @@
+{
+  "metadata": {
+    "description": "Synthetic Razorpay webhook payloads for Project Lifeline evaluation batch",
+    "batch_size": 10,
+    "recovered": 3,
+    "lost": 4,
+    "suppressed": 3,
+    "recovery_rate": "42.8% (excluding suppressed)",
+    "summary": "Batch Size: 10, Recovered: 3, Lost: 4, Suppressed: 3, Recovery Rate: 42.8% (excluding suppressed)"
+  },
+  "events": [
+    {
+      "id": "evt_batch_001",
+      "entity": "event",
+      "event": "payment.failed",
+      "account_id": "acc_lifeline_merchant",
+      "contains": ["payment"],
+      "payload": {
+        "payment": {
+          "entity": {
+            "id": "pay_fail_batch_card_exp",
+            "amount": 349900,
+            "currency": "INR",
+            "status": "failed",
+            "method": "card",
+            "customer_id": "cust_card_exp_01",
+            "contact": "+919876543210",
+            "email": "card_holder@example.com",
+            "error_code": "BAD_REQUEST_ERROR",
+            "error_description": "card_expired",
+            "error_reason": "card_expired",
+            "created_at": 1709541000
+          }
+        }
+      },
+      "created_at": 1709541001,
+      "expected_outcome": "LOST"
+    },
+    {
+      "id": "evt_batch_002",
+      "entity": "event",
+      "event": "payment.failed",
+      "account_id": "acc_lifeline_merchant",
+      "contains": ["payment"],
+      "payload": {
+        "payment": {
+          "entity": {
+            "id": "pay_fail_batch_bank_down",
+            "amount": 799900,
+            "currency": "INR",
+            "status": "failed",
+            "method": "netbanking",
+            "bank": "HDFC",
+            "customer_id": "cust_bank_down_02",
+            "contact": "+919876543211",
+            "email": "hdfc_user@example.com",
+            "error_code": "GATEWAY_ERROR",
+            "error_description": "bank_server_down",
+            "error_reason": "bank_server_down",
+            "created_at": 1709541100
+          }
+        }
+      },
+      "created_at": 1709541102,
+      "expected_outcome": "LOST"
+    },
+    {
+      "id": "evt_batch_003",
+      "entity": "event",
+      "event": "payment.failed",
+      "account_id": "acc_lifeline_merchant",
+      "contains": ["payment"],
+      "payload": {
+        "payment": {
+          "entity": {
+            "id": "pay_fail_batch_insufficient",
+            "amount": 125000,
+            "currency": "INR",
+            "status": "failed",
+            "method": "card",
+            "customer_id": "cust_insufficient_03",
+            "contact": "+919876543212",
+            "email": "salary_account@example.com",
+            "error_code": "BAD_REQUEST_ERROR",
+            "error_description": "insufficient_funds",
+            "error_reason": "insufficient_funds",
+            "created_at": 1709541200
+          }
+        }
+      },
+      "created_at": 1709541201,
+      "expected_outcome": "LOST"
+    },
+    {
+      "id": "evt_batch_004",
+      "entity": "event",
+      "event": "payment.failed",
+      "account_id": "acc_lifeline_merchant",
+      "contains": ["payment"],
+      "payload": {
+        "payment": {
+          "entity": {
+            "id": "pay_fail_batch_upi_blocked",
+            "amount": 450000,
+            "currency": "INR",
+            "status": "failed",
+            "method": "upi",
+            "vpa": "user@okhdfcbank",
+            "customer_id": "cust_upi_blocked_04",
+            "contact": "+919876543213",
+            "email": "upi_shopper@example.com",
+            "error_code": "BAD_REQUEST_ERROR",
+            "error_description": "upi_pin_blocked",
+            "error_reason": "upi_pin_blocked",
+            "created_at": 1709541300
+          }
+        }
+      },
+      "created_at": 1709541302,
+      "expected_outcome": "LOST"
+    },
+    {
+      "id": "evt_batch_005",
+      "entity": "event",
+      "event": "payment_link.paid",
+      "account_id": "acc_lifeline_merchant",
+      "contains": ["payment_link", "payment"],
+      "payload": {
+        "payment_link": {
+          "entity": {
+            "id": "plink_batch_rec_01",
+            "amount": 299900,
+            "currency": "INR",
+            "status": "paid",
+            "short_url": "https://rzp.io/i/rec01",
+            "customer": {
+              "contact": "+919876543214",
+              "name": "Aditya Verma"
+            }
+          }
+        },
+        "payment": {
+          "entity": {
+            "id": "pay_recovered_batch_01",
+            "amount": 299900,
+            "currency": "INR",
+            "status": "captured",
+            "method": "upi"
+          }
+        }
+      },
+      "created_at": 1709541400,
+      "expected_outcome": "RECOVERED_GROUND_TRUTH"
+    },
+    {
+      "id": "evt_batch_006",
+      "entity": "event",
+      "event": "payment_link.paid",
+      "account_id": "acc_lifeline_merchant",
+      "contains": ["payment_link", "payment"],
+      "payload": {
+        "payment_link": {
+          "entity": {
+            "id": "plink_batch_rec_02",
+            "amount": 549900,
+            "currency": "INR",
+            "status": "paid",
+            "short_url": "https://rzp.io/i/rec02",
+            "customer": {
+              "contact": "+919876543215",
+              "name": "Pooja Hegde"
+            }
+          }
+        },
+        "payment": {
+          "entity": {
+            "id": "pay_recovered_batch_02",
+            "amount": 549900,
+            "currency": "INR",
+            "status": "captured",
+            "method": "card"
+          }
+        }
+      },
+      "created_at": 1709541500,
+      "expected_outcome": "RECOVERED_GROUND_TRUTH"
+    },
+    {
+      "id": "evt_batch_007",
+      "entity": "event",
+      "event": "payment_link.paid",
+      "account_id": "acc_lifeline_merchant",
+      "contains": ["payment_link", "payment"],
+      "payload": {
+        "payment_link": {
+          "entity": {
+            "id": "plink_batch_rec_03",
+            "amount": 185000,
+            "currency": "INR",
+            "status": "paid",
+            "short_url": "https://rzp.io/i/rec03",
+            "customer": {
+              "contact": "+919876543216",
+              "name": "Karan Johar"
+            }
+          }
+        },
+        "payment": {
+          "entity": {
+            "id": "pay_recovered_batch_03",
+            "amount": 185000,
+            "currency": "INR",
+            "status": "captured",
+            "method": "netbanking"
+          }
+        }
+      },
+      "created_at": 1709541600,
+      "expected_outcome": "RECOVERED_GROUND_TRUTH"
+    },
+    {
+      "id": "evt_batch_008",
+      "entity": "event",
+      "event": "payment.failed",
+      "account_id": "acc_lifeline_merchant",
+      "contains": ["payment"],
+      "payload": {
+        "payment": {
+          "entity": {
+            "id": "pay_fail_batch_optout_01",
+            "amount": 210000,
+            "currency": "INR",
+            "status": "failed",
+            "method": "card",
+            "customer_id": "cust_optout_01",
+            "contact": "+919876543217",
+            "email": "optout_user1@example.com",
+            "error_code": "BAD_REQUEST_ERROR",
+            "error_description": "card_expired",
+            "error_reason": "card_expired",
+            "created_at": 1709541700
+          }
+        }
+      },
+      "created_at": 1709541701,
+      "expected_outcome": "COMPLIANCE_HALT",
+      "compliance_note": "Customer replied STOP PLEASE - outreach suppressed"
+    },
+    {
+      "id": "evt_batch_009",
+      "entity": "event",
+      "event": "payment.failed",
+      "account_id": "acc_lifeline_merchant",
+      "contains": ["payment"],
+      "payload": {
+        "payment": {
+          "entity": {
+            "id": "pay_fail_batch_optout_02",
+            "amount": 630000,
+            "currency": "INR",
+            "status": "failed",
+            "method": "netbanking",
+            "customer_id": "cust_optout_02",
+            "contact": "+919876543218",
+            "email": "optout_user2@example.com",
+            "error_code": "GATEWAY_ERROR",
+            "error_description": "bank_server_down",
+            "error_reason": "bank_server_down",
+            "created_at": 1709541800
+          }
+        }
+      },
+      "created_at": 1709541801,
+      "expected_outcome": "COMPLIANCE_HALT",
+      "compliance_note": "Customer replied बंद करो - outreach suppressed"
+    },
+    {
+      "id": "evt_batch_010",
+      "entity": "event",
+      "event": "payment.failed",
+      "account_id": "acc_lifeline_merchant",
+      "contains": ["payment"],
+      "payload": {
+        "payment": {
+          "entity": {
+            "id": "pay_fail_batch_optout_03",
+            "amount": 99000,
+            "currency": "INR",
+            "status": "failed",
+            "method": "upi",
+            "customer_id": "cust_optout_03",
+            "contact": "+919876543219",
+            "email": "optout_user3@example.com",
+            "error_code": "BAD_REQUEST_ERROR",
+            "error_description": "insufficient_funds",
+            "error_reason": "insufficient_funds",
+            "created_at": 1709541900
+          }
+        }
+      },
+      "created_at": 1709541901,
+      "expected_outcome": "COMPLIANCE_HALT",
+      "compliance_note": "Customer replied Unsubscribe - outreach suppressed"
+    }
+  ]
+}

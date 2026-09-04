@@ -6,3 +6,4 @@ celery
 redis
 groq
 python-dotenv
+pytest

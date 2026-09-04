@@ -161,6 +161,11 @@ razorpay-lifeline/
 ├── dashboard.py            # React frontend entry
 ├── whatsapp_connect.py     # Evolution API QR pairing
 ├── run_system.py           # 1-click supervisor (Uvicorn + Ngrok + Vite)
+├── data/
+│   └── sample_batch.json   # 10-event synthetic evaluation batch
+├── tests/
+│   ├── test_compliance.py  # Automated guardrail & cap unit tests
+│   └── README.md
 ├── requirements.txt
 ├── docker-compose.yml
 ├── Dockerfile
@@ -196,6 +201,14 @@ I didn't just build a wrapper. I built:
 - A **multi-channel fallback chain** with no single point of failure
 
 This is the agentic future of the Razorpay ecosystem.
+
+---
+
+## ⚠️ Known Limitations & Honest Exceptions
+
+1. **Inbound WhatsApp Sync Drops:** Self-hosted Baileys instances (Evolution API) occasionally drop inbound messages from the linked host device. Mitigated via a 5s polling daemon, but a production BSP (Twilio/Gupshup) is required for 100% inbound reliability.
+2. **Simulation-Based Recovery Rate:** The 51% recovery metric is based on closed-loop synthetic batching and historical dunning benchmarks. Real-world recovery depends heavily on merchant brand trust and product margins.
+3. **Single-Instance WhatsApp:** The current architecture uses a single WhatsApp session. Scaling to 10,000+ concurrent recoveries requires a queue-based multi-session BSP architecture.
 
 ---
 
