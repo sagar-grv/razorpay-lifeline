@@ -1,8 +1,9 @@
-from fastapi import FastAPI, Request, HTTPException, Depends, BackgroundTasks
+from fastapi import FastAPI, Request, HTTPException, Depends, BackgroundTasks, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from typing import Optional, Any
 import hashlib, hmac, json, os, random, asyncio, time, datetime, sys, re
 from dotenv import load_dotenv
 from database import SessionLocal, FailedPayment, RecoveryAuditLog, RecoveryLink, CustomerPreference
@@ -326,7 +327,21 @@ async def background_recovery_task(payment_id: str, failure_reason: str, amount:
 
 # ----------------- DETERMINISTIC COMPLIANCE INTENT HANDLER ----------------- #
 
-async def handle_inbound_compliance_intent(phone: str, text: str, db: Session, remote_jid: str = "") -> str:
+async def send_direct_confirmation(phone_number: str, message: str):
+    """Dispatches direct legal compliance confirmation message via BackgroundTasks."""
+    try:
+        await send_whatsapp_evolution(phone_number, message)
+        log_event(f"[CONFIRMATION_SENT] Direct reply sent to {safe_log(phone_number)}", level="INFO")
+    except Exception as e:
+        log_event(f"[CONFIRMATION_FAIL] Direct reply to {safe_log(phone_number)} failed: {safe_log(str(e))}", level="ERROR")
+
+def handle_inbound_compliance_intent(
+    phone: str, 
+    text: str, 
+    db: Session, 
+    background_tasks: Optional[BackgroundTasks] = None, 
+    remote_jid: str = ""
+) -> str:
     """Deterministic, zero-hallucination compliance parser for STOP and Promise-to-Pay."""
     if not phone or not text:
         return "EMPTY"
@@ -376,9 +391,17 @@ async def handle_inbound_compliance_intent(phone: str, text: str, db: Session, r
         db.add(audit)
         db.commit()
         
-        # Send ONE legal opt-out confirmation message DIRECTLY (bypasses guard)
+        # Dispatch ONE legal opt-out confirmation message asynchronously via BackgroundTasks
         confirmation = "You have been opted out. You will not receive further recovery messages."
-        await send_whatsapp_evolution(clean_phone, confirmation)
+        if background_tasks:
+            background_tasks.add_task(send_direct_confirmation, clean_phone, confirmation)
+        else:
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(send_direct_confirmation(clean_phone, confirmation))
+            except RuntimeError:
+                pass
+                
         log_event(f"[STOPPING RULE] {clean_phone} opted out via real WhatsApp", level="WARN")
         return "OPT_OUT"
         
@@ -412,7 +435,15 @@ async def handle_inbound_compliance_intent(phone: str, text: str, db: Session, r
         db.commit()
         
         confirmation = "Noted! We've recorded your promise to pay. One gentle reminder tomorrow. Reply STOP anytime to opt out."
-        await send_whatsapp_evolution(clean_phone, confirmation)
+        if background_tasks:
+            background_tasks.add_task(send_direct_confirmation, clean_phone, confirmation)
+        else:
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(send_direct_confirmation(clean_phone, confirmation))
+            except RuntimeError:
+                pass
+                
         log_event(f"[PROMISE-TO-PAY] {clean_phone} rescheduled via real WhatsApp", level="INFO")
         return "PROMISE_TO_PAY"
         
@@ -421,48 +452,58 @@ async def handle_inbound_compliance_intent(phone: str, text: str, db: Session, r
 # ----------------- WEBHOOKS ----------------- #
 
 @app.post("/webhook/whatsapp-inbound")
-async def whatsapp_inbound_webhook(request: Request, db: Session = Depends(get_db)):
-    """Receives live inbound WhatsApp messages from Evolution API."""
+def whatsapp_inbound_webhook(
+    background_tasks: BackgroundTasks,
+    payload: Any = Body(default={})
+):
+    """Receives live inbound WhatsApp messages from Evolution API and processes synchronously in threadpool (<100ms)."""
+    db = SessionLocal()
     try:
-        data = await request.json()
-    except Exception:
-        return {"status": "invalid_json"}
+        if not isinstance(payload, dict):
+            payload = {}
+            
+        payload_data = payload.get("data", payload)
+        if isinstance(payload_data, list) and len(payload_data) > 0:
+            payload_data = payload_data[0]
+        elif not isinstance(payload_data, dict):
+            payload_data = {}
+            
+        msg_id = payload_data.get("key", {}).get("id") or str(time.time())
+        if msg_id in SEEN_INBOUND_MSG_IDS:
+            return {"status": "duplicate_skipped"}
+        SEEN_INBOUND_MSG_IDS.add(msg_id)
+        if len(SEEN_INBOUND_MSG_IDS) > 500:
+            SEEN_INBOUND_MSG_IDS.pop()
+            
+        from_me = payload_data.get("key", {}).get("fromMe", False)
+        if from_me:
+            return {"status": "outbound_ignored"}
+            
+        remote_jid = payload_data.get("key", {}).get("remoteJid", "")
+        # Strictly ignore group messages
+        if "@g.us" in remote_jid:
+            return {"status": "group_ignored"}
+            
+        phone = "".join(filter(str.isdigit, remote_jid.split("@")[0]))
         
-    payload_data = data.get("data", data)
-    if isinstance(payload_data, list) and len(payload_data) > 0:
-        payload_data = payload_data[0]
+        msg_obj = payload_data.get("message", {})
+        if not isinstance(msg_obj, dict):
+            msg_obj = {}
+            
+        text = (
+            msg_obj.get("conversation")
+            or msg_obj.get("extendedTextMessage", {}).get("text")
+            or msg_obj.get("imageMessage", {}).get("caption")
+            or ""
+        )
         
-    msg_id = payload_data.get("key", {}).get("id") or str(time.time())
-    if msg_id in SEEN_INBOUND_MSG_IDS:
-        return {"status": "duplicate_skipped"}
-    SEEN_INBOUND_MSG_IDS.add(msg_id)
-    if len(SEEN_INBOUND_MSG_IDS) > 500:
-        SEEN_INBOUND_MSG_IDS.pop()
-        
-    from_me = payload_data.get("key", {}).get("fromMe", False)
-    if from_me:
-        return {"status": "outbound_ignored"}
-        
-    remote_jid = payload_data.get("key", {}).get("remoteJid", "")
-    # Strictly ignore group messages
-    if "@g.us" in remote_jid:
-        return {"status": "group_ignored"}
-        
-    phone = "".join(filter(str.isdigit, remote_jid.split("@")[0]))
-    
-    msg_obj = payload_data.get("message", {})
-    text = (
-        msg_obj.get("conversation")
-        or msg_obj.get("extendedTextMessage", {}).get("text")
-        or msg_obj.get("imageMessage", {}).get("caption")
-        or ""
-    )
-    
-    if phone and text:
-        intent = await handle_inbound_compliance_intent(phone, text, db, remote_jid=remote_jid)
-        return {"status": "processed", "intent": intent}
-        
-    return {"status": "empty_payload_ignored"}
+        if phone and text:
+            handle_inbound_compliance_intent(phone, text, db, background_tasks=background_tasks, remote_jid=remote_jid)
+            return {"status": "queued_for_processing"}
+            
+        return {"status": "empty_payload_ignored"}
+    finally:
+        db.close()
 
 @app.post("/webhook/razorpay")
 async def razorpay_webhook(
@@ -597,12 +638,12 @@ async def razorpay_webhook(
     return {"status": "received_and_queued", "payment_id": payment_id}
 
 @app.post("/webhook/httpsms")
-async def sms_reply_webhook(request: Request, db: Session = Depends(get_db)):
+async def sms_reply_webhook(request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """Receives replies from SMS gateway."""
     data = await request.json()
     sender_phone = data.get("from", "+919876543210")
     reply_text = data.get("content", "")
-    intent = await handle_inbound_compliance_intent(sender_phone, reply_text, db)
+    intent = handle_inbound_compliance_intent(sender_phone, reply_text, db, background_tasks=background_tasks)
     return {"status": "reply_processed", "intent": intent}
 
 # ----------------- DASHBOARD REST & SSE APIS ----------------- #
@@ -782,9 +823,9 @@ class SimulateReplyRequest(BaseModel):
     content: str = "STOP PLEASE"
 
 @app.post("/api/simulate-reply")
-async def simulate_reply(req: SimulateReplyRequest, db: Session = Depends(get_db)):
+async def simulate_reply(req: SimulateReplyRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     log_event(f"Simulating customer reply from {req.phone}: '{req.content}'")
-    intent = await handle_inbound_compliance_intent(req.phone, req.content, db)
+    intent = handle_inbound_compliance_intent(req.phone, req.content, db, background_tasks=background_tasks)
     return {"status": "success", "intent": intent}
 
 class ResetPreferenceRequest(BaseModel):
